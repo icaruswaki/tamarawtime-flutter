@@ -49,8 +49,22 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter_launcher_icons:
-  android: true
   image_path: "assets/images/tamaraw-logo.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/images/tamaraw-logo.png"
+    background_color: "#171023"
+    theme_color: "#171023"
+  windows:
+    generate: true
+    image_path: "assets/images/tamaraw-logo.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/images/tamaraw-logo.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
