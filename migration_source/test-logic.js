@@ -1,0 +1,23 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const s=fs.readFileSync(__dirname+'/app.js','utf8');
+// Test function definitions independently of browser-only app UI.
+let sample=s.split('\n').find(line=>line.startsWith('function to24Hour('));
+assert(sample,'Missing time converter');
+const clock=vm.runInNewContext('('+sample.replace('function to24Hour','function')+')');
+assert.equal(clock(12,0,'AM'),'00:00');
+assert.equal(clock(12,0,'PM'),'12:00');
+assert.equal(clock(9,30,'PM'),'21:30');
+assert.equal(clock(1,5,'AM'),'01:05');
+const minutes=(str)=>{const [h,m]=str.split(':').map(Number);return h*60+m};
+const display=(n)=>{n=(n%1440+1440)%1440;const h=Math.floor(n/60),m=n%60;return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`};
+const calc=(start,journey,buffer,ready)=>({leave:display(minutes(start)-journey-buffer),wake:display(minutes(start)-journey-buffer-ready),arrive:display(minutes(start)-buffer)});
+assert.deepEqual(calc('09:00',55,15,45),{leave:'7:50 AM',wake:'7:05 AM',arrive:'8:45 AM'});
+assert.deepEqual(calc('13:00',90,20,30),{leave:'11:10 AM',wake:'10:40 AM',arrive:'12:40 PM'});
+assert(s.includes('scheduleAutoRoute();'),'GPS does not auto request routes');
+assert(s.includes('activeRouteEstimate={minutes,mode,campus:'),'route estimate not auto saved to session');
+assert(s.includes('visual-demo visual-map'),'visual tutorial missing');
+assert(s.includes('data-theme-choice'),'theme switch missing');
+assert(s.includes('classForm=`'),'class form missing');
+assert(s.includes('refreshDepartureCountdown();'),'auto countdown missing');
+console.log('PASS: AM/PM conversion (4), departure arithmetic (2), automatic route update, visual tour, themes, add-class form, live countdown');

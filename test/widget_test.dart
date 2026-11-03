@@ -1,0 +1,81 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tamaraw_time/main.dart';
+import 'package:tamaraw_time/src/planner.dart';
+import 'package:tamaraw_time/src/routing.dart';
+
+void main() {
+  test('Weekly occurrences roll over and preserve midnight/PM times', () {
+    final now = DateTime.utc(2026, 11, 2, 10);
+    expect(
+      nextOccurrence({'day': 1, 'time': '09:00'}, now),
+      DateTime.utc(2026, 11, 9, 9),
+    );
+    expect(
+      nextOccurrence({'day': 1, 'time': '21:00'}, now),
+      DateTime.utc(2026, 11, 2, 21),
+    );
+    expect(
+      nextOccurrence({'day': 2, 'time': '00:00'}, now),
+      DateTime.utc(2026, 11, 3),
+    );
+    expect(clock(DateTime.utc(2026, 11, 2, 0, 5)), '12:05 AM');
+  });
+  test('Device planner persists data using the web payload schema', () async {
+    SharedPreferences.setMockInitialValues({});
+    final planner = Planner(null);
+    await planner.load(deviceOnly: true);
+    planner.payload['classes'] = [
+      {
+        'id': 'a',
+        'name': 'Algorithms',
+        'day': 1,
+        'time': '09:00',
+        'end': '10:30',
+        'campus': 'FEU Tech',
+        'room': '401',
+      },
+    ];
+    planner.settings['theme'] = 'ocean';
+    await planner.save('class_added');
+    final restored = Planner(null);
+    await restored.load(deviceOnly: true);
+    expect(restored.classes.single['name'], 'Algorithms');
+    expect(restored.settings['theme'], 'ocean');
+  });
+  test('Jeepney discovery excludes buses and UV services', () {
+    expect(Routing.isJeepney({'route': 'bus', 'name': 'EDSA Carousel'}), false);
+    expect(
+      Routing.isJeepney({'route': 'bus', 'name': 'UV Express jeep'}),
+      false,
+    );
+    expect(Routing.isJeepney({'route': 'bus', 'ref': 'T123'}), true);
+    expect(Routing.isJeepney({'route': 'jeepney'}), true);
+  });
+  testWidgets('Local planner opens schedule and saves a class', (tester) async {
+    final payload = Planner.fresh();
+    payload['onboarding'] = {'finished': true};
+    SharedPreferences.setMockInitialValues({
+      'tamaraw_local': jsonEncode(payload),
+    });
+    await tester.pumpWidget(const TamarawTimeApp());
+    await tester.tap(find.text('Continue on this device'));
+    await tester.pumpAndSettle();
+    expect(find.text('Good day, Tamaraw!'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Data Structures');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Data Structures'), findsNWidgets(2));
+    final stored = jsonDecode(
+      (await SharedPreferences.getInstance()).getString('tamaraw_local')!,
+    );
+    expect(stored['classes'][0]['name'], 'Data Structures');
+    expect(stored['classes'][0]['time'], '09:00');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+}

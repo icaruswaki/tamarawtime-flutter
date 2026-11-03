@@ -1,0 +1,521 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+
+import 'planner.dart';
+import 'routing.dart';
+import 'theme.dart';
+
+class Commute extends StatefulWidget {
+  const Commute({super.key, required this.planner, required this.onSave});
+  final Planner planner;
+  final Future<void> Function() onSave;
+  @override
+  State<Commute> createState() => _CommuteState();
+}
+
+class _CommuteState extends State<Commute> with WidgetsBindingObserver {
+  final map = MapController();
+  StreamSubscription<Position>? gps;
+  LatLng? position;
+  List<LatLng> line = [], access = [], exit = [];
+  List<JeepneyPlan> jeepneys = [];
+  JeepneyPlan? selected;
+  String? classId;
+  late String mode = widget.planner.settings['mode'];
+  late final travel = TextEditingController(
+    text: '${widget.planner.settings['travel']}',
+  );
+  late final prep = TextEditingController(
+    text: '${widget.planner.settings['prep']}',
+  );
+  late final buffer = TextEditingController(
+    text: '${widget.planner.settings['buffer']}',
+  );
+  String status =
+      'GPS is off. Start tracking to plan from your current position.';
+  bool busy = false, tracking = false;
+  int serial = 0;
+  DateTime? lastRoute;
+  final form = GlobalKey<FormState>();
+  Map<String, dynamic>? get chosen {
+    final list = widget.planner.upcoming;
+    return list.isEmpty
+        ? null
+        : list.firstWhere((c) => c['id'] == classId, orElse: () => list.first);
+  }
+
+  LatLng get destination =>
+      campusPoints[chosen?['campus'] ?? widget.planner.settings['campus']]!;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) stop();
+  }
+
+  @override
+  void dispose() {
+    serial++;
+    WidgetsBinding.instance.removeObserver(this);
+    gps?.cancel();
+    map.dispose();
+    travel.dispose();
+    prep.dispose();
+    buffer.dispose();
+    super.dispose();
+  }
+
+  void stop() {
+    gps?.cancel();
+    gps = null;
+    serial++;
+    if (mounted) {
+      setState(() {
+        tracking = false;
+        busy = false;
+        status = 'Live GPS tracking stopped.';
+      });
+    }
+  }
+
+  void reset() {
+    serial++;
+    travel.text = '${widget.planner.settings['travel']}';
+    lastRoute = null;
+    setState(() {
+      busy = false;
+      line = [];
+      access = [];
+      exit = [];
+      jeepneys = [];
+      selected = null;
+      status = 'Destination or mode changed. Find a new route.';
+    });
+    map.move(destination, 14);
+    if (position != null && tracking && ['Walking', 'Driving'].contains(mode)) {
+      unawaited(find());
+    }
+  }
+
+  Future<void> start() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Enable location services on your device.');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission is required. Enable it in app settings if blocked.',
+        );
+      }
+      await gps?.cancel();
+      if (!mounted) return;
+      setState(() {
+        tracking = true;
+        status = 'Waiting for GPS…';
+      });
+      gps =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 30,
+            ),
+          ).listen(
+            (p) {
+              if (!mounted) return;
+              setState(() {
+                position = LatLng(p.latitude, p.longitude);
+                status = 'GPS active · accuracy ${p.accuracy.round()} m';
+              });
+              if (['Walking', 'Driving'].contains(mode) &&
+                  !busy &&
+                  (lastRoute == null ||
+                      DateTime.now().difference(lastRoute!).inSeconds > 30)) {
+                unawaited(find());
+              }
+            },
+            onError: (Object e) {
+              stop();
+              if (mounted) setState(() => status = 'GPS unavailable: $e');
+            },
+          );
+      await widget.planner.log('gps_checked');
+    } catch (e) {
+      if (mounted) setState(() => status = '$e');
+    }
+  }
+
+  void fit(List<LatLng> points) {
+    if (points.length > 1) {
+      map.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.all(35),
+        ),
+      );
+    }
+  }
+
+  Future<void> find() async {
+    if (position == null) {
+      setState(() => status = 'Start GPS and wait for your position first.');
+      return;
+    }
+    if (busy) return;
+    final request = ++serial,
+        origin = position!,
+        dest = destination,
+        requestedMode = mode;
+    setState(() {
+      busy = true;
+      status = 'Finding mapped routes…';
+      line = [];
+      access = [];
+      exit = [];
+      selected = null;
+      jeepneys = [];
+    });
+    lastRoute = DateTime.now();
+    try {
+      await widget.planner.log('maps_opened');
+      if (requestedMode == 'Jeepney') {
+        final results = await Routing.jeepneys(origin, dest);
+        if (!mounted || request != serial) return;
+        setState(() {
+          jeepneys = results;
+          status = results.isEmpty
+              ? 'No direct jeepney connection with ordered mapped stops was confirmed. Check Sakay.ph or confirm routes locally.'
+              : 'Mapped candidates found. Confirm signage and current operation before boarding.';
+        });
+      } else if (['Walking', 'Driving'].contains(requestedMode)) {
+        final route = await Routing.road(origin, dest, requestedMode);
+        if (!mounted || request != serial) return;
+        setState(() {
+          line = route.points;
+          travel.text = '${route.minutes}';
+          status =
+              '${(route.meters / 1000).toStringAsFixed(1)} km · about ${route.minutes} min. Applied to this trip; no live traffic.';
+        });
+        fit([origin, dest, ...line]);
+      } else {
+        setState(
+          () => status =
+              'Use your total journey estimate for $mode. Check transit options at https://sakay.ph/.',
+        );
+      }
+    } catch (e) {
+      if (mounted && request == serial) {
+        setState(
+          () => status =
+              'Route unavailable: $e. Using the editable journey estimate.',
+        );
+      }
+    } finally {
+      if (mounted && request == serial) setState(() => busy = false);
+    }
+  }
+
+  Future<void> select(JeepneyPlan route) async {
+    final request = ++serial, origin = position!, dest = destination;
+    setState(() {
+      selected = route;
+      line = route.points;
+      access = [];
+      exit = [];
+      busy = true;
+    });
+    fit([origin, dest, ...line]);
+    try {
+      final legs = await Future.wait([
+        Routing.road(origin, route.board, 'Walking'),
+        Routing.road(route.alight, dest, 'Walking'),
+      ]);
+      if (!mounted || request != serial) return;
+      setState(() {
+        access = legs[0].points;
+        exit = legs[1].points;
+        status =
+            'Walking connections: ${legs[0].minutes + legs[1].minutes} min. Total journey still uses your manual estimate, including waiting and riding.';
+      });
+    } catch (_) {
+      if (mounted && request == serial) {
+        setState(
+          () => status = 'Walking connections unavailable. Stop markers show mapped boarding and alighting locations.',
+        );
+      }
+    } finally {
+      if (mounted && request == serial) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = chosen;
+    final journey = int.tryParse(travel.text) ?? 55;
+    final preparation = int.tryParse(prep.text) ?? 45;
+    final margin = int.tryParse(buffer.text) ?? 15;
+    final when = c == null ? null : nextOccurrence(c, manilaNow());
+    final leave = when?.subtract(Duration(minutes: journey + margin));
+    Widget number(TextEditingController controller, String label, int min) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: TextFormField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: label),
+            validator: (v) {
+              final n = int.tryParse(v ?? '');
+              return n == null || n < min || n > 480
+                  ? 'Enter $min–480 minutes'
+                  : null;
+            },
+            onChanged: (_) => setState(() {}),
+          ),
+        );
+    return Form(
+      key: form,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Commute Planner',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 20),
+          if (c != null)
+            DropdownButtonFormField<String>(
+              initialValue: c['id'],
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Choose a class'),
+              items: widget.planner.upcoming
+                  .map(
+                    (c) => DropdownMenuItem<String>(
+                      value: c['id'],
+                      child: Text(
+                        '${c['name']} · ${days[c['day']]}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) {
+                classId = v;
+                reset();
+              },
+            ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: mode,
+            decoration: const InputDecoration(labelText: 'Travel mode'),
+            items: modes
+                .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                .toList(),
+            onChanged: (v) {
+              mode = v!;
+              reset();
+            },
+          ),
+          const SizedBox(height: 16),
+          number(travel, 'Total journey minutes', 1),
+          number(prep, 'Preparation minutes', 0),
+          number(buffer, 'Arrival buffer minutes', 0),
+          if (leave != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Your recommended routine',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                RoutineResults(
+                  ready: clock(leave.subtract(Duration(minutes: preparation))),
+                  leave: clock(leave),
+                  arrive: clock(when!.subtract(Duration(minutes: margin))),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          FilledButton(
+            onPressed: () async {
+              if (form.currentState!.validate()) {
+                widget.planner.settings.addAll({
+                  'travel': journey,
+                  'prep': preparation,
+                  'buffer': margin,
+                  'mode': mode,
+                });
+                await widget.onSave();
+              }
+            },
+            child: const Text('Save as default commute'),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Live GPS & commute routes',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Starting GPS shares coordinates with routing providers for walking/driving estimates. Find route shares coordinates with map services for jeepney discovery. GPS is kept in memory only.',
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: tracking ? null : start,
+                icon: const Icon(Icons.my_location),
+                label: const Text('Start GPS'),
+              ),
+              OutlinedButton(
+                onPressed: tracking ? stop : null,
+                child: const Text('Stop tracking'),
+              ),
+              OutlinedButton(
+                onPressed: busy ? null : find,
+                child: const Text('Find route'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (busy) const LinearProgressIndicator(),
+          Text(status),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 360,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: FlutterMap(
+                mapController: map,
+                options: MapOptions(
+                  initialCenter: destination,
+                  initialZoom: 14,
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.tamarawtime.app',
+                  ),
+                  PolylineLayer(
+                    polylines: [
+                      if (line.isNotEmpty)
+                        Polyline(
+                          points: line,
+                          color: Theme.of(context).colorScheme.primary,
+                          strokeWidth: 5,
+                        ),
+                      for (final leg in [access, exit])
+                        if (leg.isNotEmpty)
+                          Polyline(
+                            points: leg,
+                            color: Colors.orange,
+                            strokeWidth: 4,
+                          ),
+                    ],
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: destination,
+                        child: const Tooltip(
+                          message: 'FEU campus',
+                          child: Icon(
+                            Icons.school,
+                            color: Colors.red,
+                            size: 36,
+                          ),
+                        ),
+                      ),
+                      if (position != null)
+                        Marker(
+                          point: position!,
+                          child: const Icon(
+                            Icons.my_location,
+                            color: Colors.blue,
+                            size: 30,
+                          ),
+                        ),
+                      if (selected != null) ...[
+                        Marker(
+                          point: selected!.board,
+                          child: const Icon(
+                            Icons.directions_bus,
+                            color: Colors.green,
+                            size: 32,
+                          ),
+                        ),
+                        Marker(
+                          point: selected!.alight,
+                          child: const Icon(
+                            Icons.flag,
+                            color: Colors.orange,
+                            size: 32,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SimpleAttributionWidget(
+                    source: Text('© OpenStreetMap contributors'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          for (final route in jeepneys)
+            Card(
+              child: ListTile(
+                title: Text(route.name),
+                subtitle: Text(
+                  'Board: ${route.boardName}\nAlight: ${route.alightName}',
+                ),
+                onTap: busy ? null : () => select(route),
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            ),
+          if (selected != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  '1. Walk to ${selected!.boardName}\n2. Board ${selected!.name}; verify signage\n3. Get off at ${selected!.alightName}\n4. Walk to ${c?['campus'] ?? widget.planner.settings['campus']}\n\nMapped service only. No live jeepney ETA or availability.',
+                ),
+              ),
+            ),
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(
+                const ClipboardData(text: 'https://sakay.ph/'),
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Sakay.ph link copied')),
+                );
+              }
+            },
+            child: const Text('Copy Sakay.ph transit planner link'),
+          ),
+          const Text(
+            'Walking/driving use public routing services. Transit uses your editable total journey estimate; mapped routes may be incomplete or outdated.',
+          ),
+        ],
+      ),
+    );
+  }
+}

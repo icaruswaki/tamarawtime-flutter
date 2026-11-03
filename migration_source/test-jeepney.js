@@ -1,0 +1,38 @@
+const assert=require('node:assert/strict');
+const J=require('./jeepney-routing.js');
+const origin={lat:14.602,lng:120.986},dest={lat:14.6043,lng:120.9884};
+assert(J.jeepneyTag({route:'bus',ref:'T323',name:'Jeepney route'}));
+assert(J.jeepneyTag({route:'bus',bus:'share_taxi',ref:'307'}));
+assert(!J.jeepneyTag({route:'bus',name:'EDSA Carousel'}));
+assert(!J.jeepneyTag({route:'bus',ref:'123',name:'regular bus route'}));
+assert(!J.jeepneyTag({route:'bus',name:'UV Express service',ref:'T323'}));
+assert(J.withinMetro(origin));
+assert(!J.withinMetro({lat:7.1,lng:125.5}));
+const a={lat:14.6021,lon:120.9861,name:'Boarding stop'},b={lat:14.6041,lon:120.9883,name:'Alighting stop'};
+const stops=[a,{lat:14.603,lon:120.987,name:'Intermediate'},b];
+const chosen=J.selectStops(stops,origin,dest);
+assert.equal(chosen.board.name,'Boarding stop');
+assert.equal(chosen.alight.name,'Alighting stop');
+assert.equal(J.selectStops([...stops].reverse(),origin,dest),null,'Wrong direction must not create route');
+assert.equal(J.selectStops([],origin,dest),null,'No mapped stops cannot create route');
+const geo={name:'Published OSM map route',ref:'T323',stops,geojson:{features:[{geometry:{type:'LineString',coordinates:[[120.9861,14.6021],[120.987,14.603],[120.9883,14.6041]]}}]}};
+const relation={id:1234,tags:{route:'bus',ref:'T323'}};
+const route=J.toRoute(geo,relation,origin,dest);
+assert.equal(route.id,1234);assert.equal(route.points.length,3);
+assert.equal(route.sourceUrl,'https://www.openstreetmap.org/relation/1234');
+assert.equal(J.toRoute({...geo,stops:[]},relation,origin,dest),null);
+let requests=0;
+const origFetch=global.fetch;
+global.fetch=async(url)=>{
+ requests++;
+ if(String(url).includes('api/interpreter'))return {ok:true,json:async()=>({elements:[{type:'relation',id:1234,tags:{route:'bus',ref:'T323',name:'Example'}}]})};
+ if(String(url).includes('api/route/1234'))return {ok:true,json:async()=>geo};
+ throw Error('Unexpected '+url);
+};
+(async()=>{
+ const good=await J.findRoutes(origin,dest);
+ assert.equal(good.status,'found');assert.equal(good.routes[0].ref,'T323');
+ const again=await J.findRoutes(origin,dest);assert.equal(again.status,'found');assert.equal(requests,2,'cached results should avoid repeat calls');
+ const outside=await J.findRoutes({lat:7,lng:125},dest);assert.equal(outside.status,'outside');
+ console.log('PASS: jeepney matching, OSM source provenance, directionality, GPS proximity, fallback, cache');
+})().finally(()=>{global.fetch=origFetch;});
