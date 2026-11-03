@@ -94,6 +94,16 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../assets/images/tamaraw-logo.png"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/512x512/apps"
+  RENAME "tamaraw-time.png"
+  COMPONENT Runtime)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tamaraw_time.desktop.in"
+  "${PROJECT_BINARY_DIR}/tamaraw_time.desktop" @ONLY)
+install(FILES "${PROJECT_BINARY_DIR}/tamaraw_time.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications"
+  COMPONENT Runtime)
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

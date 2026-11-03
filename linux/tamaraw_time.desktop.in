@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Tamaraw Time
+Comment=Plan and compare commute journeys
+Exec=@CMAKE_INSTALL_PREFIX@/@BINARY_NAME@
+Icon=tamaraw-time
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupWMClass=com.example.tamaraw_time
