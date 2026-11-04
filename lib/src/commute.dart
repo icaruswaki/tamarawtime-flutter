@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -89,7 +88,6 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
 
   void reset() {
     serial++;
-    travel.text = '${widget.planner.settings['travel']}';
     lastRoute = null;
     setState(() {
       busy = false;
@@ -101,9 +99,6 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
       status = 'Destination or mode changed. Find a new route.';
     });
     map.move(destination, 14);
-    if (position != null && tracking && ['Walking', 'Driving'].contains(mode)) {
-      unawaited(find());
-    }
   }
 
   Future<void> start() async {
@@ -140,12 +135,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                 position = LatLng(p.latitude, p.longitude);
                 status = 'GPS active · accuracy ${p.accuracy.round()} m';
               });
-              if (['Walking', 'Driving'].contains(mode) &&
-                  !busy &&
-                  (lastRoute == null ||
-                      DateTime.now().difference(lastRoute!).inSeconds > 30)) {
-                unawaited(find());
-              }
+              // GPS updates position only. Routes are calculated by Find route.
             },
             onError: (Object e) {
               stop();
@@ -181,12 +171,13 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
         requestedMode = mode;
     setState(() {
       busy = true;
-      status = 'Finding mapped routes…';
-      line = [];
-      access = [];
-      exit = [];
-      selected = null;
-      jeepneys = [];
+      status = 'Updating route…';
+      selected = requestedMode == 'Jeepney' ? null : selected;
+      if (requestedMode == 'Jeepney') {
+        jeepneys = [];
+        access = [];
+        exit = [];
+      }
     });
     lastRoute = DateTime.now();
     try {
@@ -197,7 +188,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
         setState(() {
           jeepneys = results;
           status = results.isEmpty
-              ? 'No direct jeepney connection with ordered mapped stops was confirmed. Check Sakay.ph or confirm routes locally.'
+              ? 'No jeepney route could be confirmed. Map services may be offline or nearby mapped routes may be unavailable.'
               : 'Mapped candidates found. Confirm signage and current operation before boarding.';
         });
       } else if (['Walking', 'Driving'].contains(requestedMode)) {
@@ -205,16 +196,24 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
         if (!mounted || request != serial) return;
         setState(() {
           line = route.points;
-          travel.text = '${route.minutes}';
+          final total = journeyEstimateMinutes(route.minutes, requestedMode);
+          travel.text = '$total';
           status =
-              '${(route.meters / 1000).toStringAsFixed(1)} km · about ${route.minutes} min. Applied to this trip; no live traffic.';
+              '${(route.meters / 1000).toStringAsFixed(1)} km · about $total min, including ${requestedMode.toLowerCase()} mode and local travel buffers. Route estimate, no live traffic.';
         });
         fit([origin, dest, ...line]);
       } else {
-        setState(
-          () => status =
-              'Use your total journey estimate for $mode. Check transit options at https://sakay.ph/.',
-        );
+        final route = await Routing.transit(origin, dest, requestedMode);
+        if (!mounted || request != serial) return;
+        setState(() {
+          line = route.points;
+          final total = journeyEstimateMinutes(route.minutes, requestedMode);
+          travel.text = '$total';
+          status = requestedMode == 'Train'
+              ? '$requestedMode route ready · about $total min. Displayed geometry follows mapped rail lines where available; verify station access locally.'
+              : '$requestedMode estimate ready · about $total min for walking, waiting, transfers and riding. Transit timetable coverage may be unavailable, so this uses the best available route estimate.';
+        });
+        fit([origin, dest, ...line]);
       }
     } catch (e) {
       if (mounted && request == serial) {
@@ -357,6 +356,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                   'prep': preparation,
                   'buffer': margin,
                   'mode': mode,
+                  'travelMode': mode,
                 });
                 await widget.onSave();
               }
@@ -498,21 +498,8 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                 ),
               ),
             ),
-          TextButton(
-            onPressed: () async {
-              await Clipboard.setData(
-                const ClipboardData(text: 'https://sakay.ph/'),
-              );
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Sakay.ph link copied')),
-                );
-              }
-            },
-            child: const Text('Copy Sakay.ph transit planner link'),
-          ),
           const Text(
-            'Walking/driving use public routing services. Transit uses your editable total journey estimate; mapped routes may be incomplete or outdated.',
+            'Walking, driving and public-transit directions use routing services. Jeepney routes use mapped OpenStreetMap services and must be checked locally. Route times are estimates and may change.',
           ),
         ],
       ),
