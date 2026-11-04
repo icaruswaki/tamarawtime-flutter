@@ -254,6 +254,7 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   int page = 0;
+  int? tutorialIndex;
   Timer? timer;
   Planner get p => widget.planner;
   @override
@@ -263,7 +264,9 @@ class _DashboardState extends State<Dashboard> {
       if (mounted) setState(() {});
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (p.payload['onboarding']?['finished'] != true) tutorial();
+      if (p.payload['onboarding']?['finished'] != true) {
+        setState(() => tutorialIndex = 0);
+      }
     });
   }
 
@@ -273,10 +276,10 @@ class _DashboardState extends State<Dashboard> {
     super.dispose();
   }
 
-  Future<void> persist([String? event]) async {
+  Future<void> persist([String? event, bool notify = true]) async {
     try {
       await p.save(event);
-      if (mounted) {
+      if (mounted && notify) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -299,79 +302,44 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> tutorial() async {
-    const tips = [
-      (
-        Icons.dashboard_outlined,
-        'Your day, already planned',
-        'Your next class and departure recommendation appear on the dashboard.',
-      ),
-      (
-        Icons.calendar_month,
-        'Build your schedule',
-        'Add subjects, weekdays, campus, and start/end times with AM/PM.',
-      ),
-      (
-        Icons.schedule,
-        'Find your departure',
-        'Class start minus journey and buffer gives your leave time. Preparation starts earlier.',
-      ),
-      (
-        Icons.map_outlined,
-        'Plan your commute',
-        'Open GPS with permission. Walking and driving can update your journey estimate; transit uses your estimate.',
-      ),
-      (
-        Icons.palette_outlined,
-        'Make it yours',
-        'Choose your campus, timings, and color scheme in Settings.',
-      ),
-    ];
-    int index = 0;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, update) => AlertDialog(
-          title: Text(tips[index].$2),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                tips[index].$1,
-                size: 76,
-                color: Theme.of(ctx).colorScheme.primary,
-              ),
-              const SizedBox(height: 20),
-              Text(tips[index].$3),
-              const SizedBox(height: 16),
-              Text('${index + 1} / ${tips.length}'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Skip'),
-            ),
-            if (index > 0)
-              TextButton(
-                onPressed: () => update(() => index--),
-                child: const Text('Back'),
-              ),
-            FilledButton(
-              onPressed: () {
-                if (index == tips.length - 1) {
-                  Navigator.pop(ctx);
-                } else {
-                  update(() => index++);
-                }
-              },
-              child: Text(index == tips.length - 1 ? 'Get started' : 'Next'),
-            ),
-          ],
-        ),
-      ),
-    );
+    setState(() {
+      page = 0;
+      tutorialIndex = 0;
+    });
+  }
+
+  Future<void> finishTutorial() async {
+    setState(() => tutorialIndex = null);
     p.payload['onboarding'] = {'finished': true};
-    await persist();
+    await persist(null, false);
+  }
+
+  void skipTutorialStep() {
+    switch (tutorialIndex) {
+      case 0:
+        setState(() {
+          page = 1;
+          tutorialIndex = 1;
+        });
+        return;
+      case 1:
+        setState(() {
+          page = 2;
+          tutorialIndex = 2;
+        });
+        return;
+      case 2:
+        setState(() {
+          page = 3;
+          tutorialIndex = 3;
+        });
+        return;
+      case 3:
+        finishTutorial();
+        return;
+      default:
+        return;
+    }
   }
 
   Future<void> addClass([Map<String, dynamic>? existing]) async {
@@ -508,6 +476,12 @@ class _DashboardState extends State<Dashboard> {
       list.add(result);
       p.payload['classes'] = list;
       await persist(existing == null ? 'class_added' : null);
+      if (mounted && tutorialIndex == 1) {
+        setState(() {
+          tutorialIndex = 2;
+          page = 2;
+        });
+      }
     }
     // Dialog transitions may still use the controllers until the next frame.
   }
@@ -734,12 +708,116 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
+  Widget tutorialCoach() {
+    if (tutorialIndex == null) return const SizedBox.shrink();
+    final steps = <(IconData, String, String, String)>[
+      (
+        Icons.dashboard_outlined,
+        '1. Explore your dashboard',
+        'This is your live day overview. Your next class and suggested leave time update from your schedule.',
+        'Open Class Schedule',
+      ),
+      (
+        Icons.add_circle_outline,
+        '2. Try adding a class',
+        'Tap the + button, enter a subject, then save it. Your dashboard and departure advice will update.',
+        'Use the + button',
+      ),
+      (
+        Icons.route_outlined,
+        '3. Check your commute',
+        'Use the Commute Planner to try walking, driving, or transit and compare the estimate.',
+        'Continue to Settings',
+      ),
+      (
+        Icons.settings_outlined,
+        '4. Personalize your planner',
+        'Review your campus and timing settings, then save when the values feel right.',
+        'Finish tutorial',
+      ),
+    ];
+    final step = steps[tutorialIndex!];
+    return Container(
+      key: const ValueKey('visual-tutorial'),
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary,
+          width: 2,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(step.$1, size: 34, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        step.$2,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: skipTutorialStep,
+                      child: const Text('Skip'),
+                    ),
+                    IconButton(
+                      tooltip: 'Close tutorial',
+                      onPressed: finishTutorial,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                Text(step.$3),
+                const SizedBox(height: 12),
+                if (tutorialIndex == 1)
+                  const Text('Waiting for you to save your first class')
+                else
+                  FilledButton.tonal(
+                    onPressed: () {
+                      if (tutorialIndex == 0) {
+                        setState(() {
+                          page = 1;
+                          tutorialIndex = 1;
+                        });
+                      } else if (tutorialIndex == 2) {
+                        setState(() {
+                          page = 3;
+                          tutorialIndex = 3;
+                        });
+                      } else {
+                        finishTutorial();
+                      }
+                    },
+                    child: Text(step.$4),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: p,
     builder: (context, _) => PlannerShell(
       page: page,
-      onPage: (i) => setState(() => page = i),
+      onPage: (i) => setState(() {
+        page = i;
+        if (tutorialIndex == 0 && i == 1) tutorialIndex = 1;
+        if (tutorialIndex == 2 && i == 3) tutorialIndex = 3;
+      }),
       onExit: widget.onExit,
       floatingActionButton: page < 2
           ? FloatingActionButton(
@@ -779,6 +857,7 @@ class _DashboardState extends State<Dashboard> {
             ],
           ),
           const SizedBox(height: 24),
+          tutorialCoach(),
           PageEntrance(
             key: ValueKey(page),
             child: switch (page) {
@@ -960,7 +1039,7 @@ class _PreferencesState extends State<Preferences> {
         TextButton.icon(
           onPressed: widget.onTutorial,
           icon: const Icon(Icons.help_outline),
-          label: const Text('Replay visual guide'),
+          label: const Text('Replay tutorial guide'),
         ),
         TextButton.icon(
           onPressed: () async {
