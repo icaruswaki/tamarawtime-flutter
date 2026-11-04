@@ -916,7 +916,11 @@ class _PreferencesState extends State<Preferences> {
         const SizedBox(height: 9),
         ThemeChoices(
           value: draft['theme'] as String,
-          onChanged: (value) => setState(() => draft['theme'] = value),
+          onChanged: (value) async {
+            setState(() => draft['theme'] = value);
+            widget.planner.settings['theme'] = value;
+            await widget.planner.save();
+          },
         ),
         const SizedBox(height: 20),
         for (final key in ['travel', 'prep', 'buffer'])
