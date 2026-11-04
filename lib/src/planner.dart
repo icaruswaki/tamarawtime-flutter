@@ -18,6 +18,25 @@ const modes = ['Transit', 'Jeepney', 'Train', 'Bus / UV', 'Driving', 'Walking'];
 DateTime manilaNow() => DateTime.now().toUtc().add(const Duration(hours: 8));
 String clock(DateTime date) =>
     '${date.hour % 12 == 0 ? 12 : date.hour % 12}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}';
+int journeyEstimateMinutes(int baseMinutes, String mode) {
+  final addition = switch (mode) {
+    'Walking' => 10,
+    'Driving' => 15,
+    'Train' => 10,
+    'Bus / UV' => 20,
+    'Jeepney' => 20,
+    _ => 15,
+  };
+  final multiplier = switch (mode) {
+    'Walking' => 1.15,
+    'Driving' => 1.20,
+    'Train' => 1.10,
+    'Bus / UV' => 1.25,
+    'Jeepney' => 1.30,
+    _ => 1.25,
+  };
+  return (baseMinutes * multiplier + addition).round().clamp(1, 480);
+}
 DateTime nextOccurrence(Map<String, dynamic> c, DateTime now) {
   final t = (c['time'] as String).split(':').map(int.parse).toList();
   var date = DateTime.utc(

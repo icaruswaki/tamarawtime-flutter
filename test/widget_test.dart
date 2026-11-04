@@ -46,6 +46,16 @@ void main() {
     expect(restored.classes.single['name'], 'Algorithms');
     expect(restored.settings['theme'], 'ocean');
   });
+  test('Driving route uses the supported routing profile', () {
+    expect(Routing.roadProfile('Driving'), 'car');
+    expect(Routing.roadProfile('Walking'), 'foot');
+  });
+  test('Journey estimate adds mode-specific travel time', () {
+    expect(journeyEstimateMinutes(60, 'Driving'), 87);
+    expect(journeyEstimateMinutes(60, 'Walking'), 79);
+    expect(journeyEstimateMinutes(60, 'Transit'), 90);
+    expect(journeyEstimateMinutes(60, 'Jeepney'), 98);
+  });
   test('Jeepney discovery excludes buses and UV services', () {
     expect(Routing.isJeepney({'route': 'bus', 'name': 'EDSA Carousel'}), false);
     expect(
@@ -53,6 +63,8 @@ void main() {
       false,
     );
     expect(Routing.isJeepney({'route': 'bus', 'ref': 'T123'}), true);
+    expect(Routing.isJeepney({'route': 'bus', 'ref': '23', 'name': 'Route 23'}), true);
+    expect(Routing.isJeepney({'route': 'bus', 'name': 'Route 23'}), true);
     expect(Routing.isJeepney({'route': 'jeepney'}), true);
   });
   testWidgets('Visual tutorial guides a local planner in live app sections', (tester) async {
