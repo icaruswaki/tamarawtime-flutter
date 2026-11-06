@@ -27,7 +27,8 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   String? classId;
   late String mode = widget.planner.settings['mode'];
   late final travel = TextEditingController(
-    text: '${widget.planner.settings['travel']}',
+    text:
+        '${widget.planner.upcoming.isEmpty ? widget.planner.settings['travel'] : widget.planner.classTravelMinutes(widget.planner.upcoming.first)}',
   );
   late final prep = TextEditingController(
     text: '${widget.planner.settings['prep']}',
@@ -312,6 +313,14 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                   .toList(),
               onChanged: (v) {
                 classId = v;
+                final selectedClass = widget.planner.classes.firstWhere(
+                  (item) => item['id'] == v,
+                  orElse: () => {},
+                );
+                if (selectedClass.isNotEmpty) {
+                  travel.text =
+                      '${widget.planner.classTravelMinutes(selectedClass)}';
+                }
                 reset();
               },
             ),
@@ -358,6 +367,16 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                   'mode': mode,
                   'travelMode': mode,
                 });
+                if (chosen != null) {
+                  final classes = widget.planner.classes;
+                  final index = classes.indexWhere(
+                    (item) => item['id'] == chosen!['id'],
+                  );
+                  if (index >= 0) {
+                    classes[index]['travel'] = journey;
+                    widget.planner.payload['classes'] = classes;
+                  }
+                }
                 await widget.onSave();
               }
             },

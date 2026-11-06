@@ -23,7 +23,87 @@ void main() {
       DateTime.utc(2026, 11, 3),
     );
     expect(clock(DateTime.utc(2026, 11, 2, 0, 5)), '12:05 AM');
+    expect(
+      nextOccurrence({
+        'day': 1,
+        'time': '09:00',
+        'end': '10:30',
+      }, DateTime.utc(2026, 11, 2, 9, 30)),
+      DateTime.utc(2026, 11, 2, 9),
+    );
   });
+  test(
+    'Schedule helpers detect conflicts and sort classes chronologically',
+    () {
+      final morning = {
+        'day': 1,
+        'time': '09:00',
+        'end': '10:30',
+        'name': 'Algorithms',
+      };
+      final touching = {
+        'day': 1,
+        'time': '10:30',
+        'end': '12:00',
+        'name': 'Physics',
+      };
+      final overlapping = {
+        'day': 1,
+        'time': '10:00',
+        'end': '11:00',
+        'name': 'English',
+      };
+      expect(classesOverlap(morning, touching), false);
+      expect(classesOverlap(morning, overlapping), true);
+      expect(classesOverlap(morning, {...overlapping, 'day': 2}), false);
+
+      final sorted = classesByDay([
+        {'day': 1, 'time': '13:00', 'end': '14:00', 'name': 'Later'},
+        {...morning},
+        {'day': 1, 'time': '09:00', 'end': '10:00', 'name': 'Earlier'},
+        {'day': 2, 'time': '08:00', 'end': '09:00', 'name': 'Tomorrow'},
+      ], 1);
+      expect(sorted.map((c) => c['name']).toList(), [
+        'Algorithms',
+        'Earlier',
+        'Later',
+      ]);
+
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 8)),
+        'Upcoming',
+      );
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 9, 30)),
+        'In progress',
+      );
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 11)),
+        'Completed',
+      );
+    },
+  );
+  test(
+    'Class travel estimate prefers class then campus then global defaults',
+    () {
+      final planner = Planner(null);
+      expect(planner.classTravelMinutes({'campus': 'FEU Tech'}), 55);
+      expect(planner.classTravelMinutes({'campus': 'FEU Alabang'}), 110);
+      expect(
+        planner.classTravelMinutes({'campus': 'FEU Tech', 'travel': 42}),
+        42,
+      );
+    },
+  );
   test('Device planner persists data using the web payload schema', () async {
     SharedPreferences.setMockInitialValues({});
     final planner = Planner(null);
@@ -63,11 +143,16 @@ void main() {
       false,
     );
     expect(Routing.isJeepney({'route': 'bus', 'ref': 'T123'}), true);
-    expect(Routing.isJeepney({'route': 'bus', 'ref': '23', 'name': 'Route 23'}), true);
+    expect(
+      Routing.isJeepney({'route': 'bus', 'ref': '23', 'name': 'Route 23'}),
+      true,
+    );
     expect(Routing.isJeepney({'route': 'bus', 'name': 'Route 23'}), true);
     expect(Routing.isJeepney({'route': 'jeepney'}), true);
   });
-  testWidgets('Visual tutorial guides a local planner in live app sections', (tester) async {
+  testWidgets('Visual tutorial guides a local planner in live app sections', (
+    tester,
+  ) async {
     final payload = Planner.fresh();
     SharedPreferences.setMockInitialValues({
       'tamaraw_local': jsonEncode(payload),
@@ -107,7 +192,9 @@ void main() {
     expect(find.text('4. Personalize your planner'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('Replay tutorial guide returns to dashboard step one', (tester) async {
+  testWidgets('Replay tutorial guide returns to dashboard step one', (
+    tester,
+  ) async {
     final payload = Planner.fresh();
     payload['onboarding'] = {'finished': true};
     SharedPreferences.setMockInitialValues({

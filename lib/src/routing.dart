@@ -93,7 +93,9 @@ class Routing {
 
   static double pow10(int precision) {
     var value = 1.0;
-    for (var i = 0; i < precision; i++) value *= 10;
+    for (var i = 0; i < precision; i++) {
+      value *= 10;
+    }
     return value;
   }
 
