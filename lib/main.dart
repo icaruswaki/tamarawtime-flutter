@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/planner.dart';
@@ -13,10 +14,12 @@ import 'src/theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const url = String.fromEnvironment(
-    'https://lddczxofnfrxiktmsboz.supabase.co',
+    'SUPABASE_URL',
+    defaultValue: 'https://lddczxofnfrxiktmsboz.supabase.co',
   );
   const key = String.fromEnvironment(
-    'sb_publishable_z-SOgWTq_0WvLyj17b-y9g_PTm1Lto9',
+    'SUPABASE_ANON_KEY',
+    defaultValue: 'sb_publishable_z-SOgWTq_0WvLyj17b-y9g_PTm1Lto9',
   );
   SupabaseClient? cloud;
   if (url.isNotEmpty && key.isNotEmpty) {
@@ -58,18 +61,43 @@ class Entry extends StatefulWidget {
 
 class _EntryState extends State<Entry> {
   bool ready = false, busy = false, signup = false, consent = false;
+  bool rememberEmail = true;
   final email = TextEditingController(), password = TextEditingController();
   String? error;
   StreamSubscription<AuthState>? auth;
   @override
   void initState() {
     super.initState();
+    _loadRememberedEmail();
     auth = widget.planner.cloud?.auth.onAuthStateChange.listen((event) {
       if (event.session == null && ready && !widget.planner.local && mounted) {
         setState(() => ready = false);
       }
     });
     if (widget.planner.cloud?.auth.currentUser != null) unawaited(enter(false));
+  }
+
+  Future<void> _loadRememberedEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('tamarawtime.rememberedEmail');
+    if (saved != null && mounted) {
+      setState(() {
+        email.text = saved;
+        rememberEmail = true;
+      });
+    }
+  }
+
+  Future<void> _saveOrForgetEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!signup && rememberEmail) {
+      await prefs.setString(
+        'tamarawtime.rememberedEmail',
+        email.text.trim(),
+      );
+    } else if (!signup) {
+      await prefs.remove('tamarawtime.rememberedEmail');
+    }
   }
 
   @override
@@ -126,8 +154,34 @@ class _EntryState extends State<Entry> {
           email: email.text.trim(),
           password: password.text,
         );
+        await _saveOrForgetEmail();
       }
       await enter(false);
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> resetPassword() async {
+    final address = email.text.trim();
+    if (!address.contains('@')) {
+      setState(() => error = 'Enter your email address first.');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.planner.cloud!.auth.resetPasswordForEmail(address);
+      if (mounted) {
+        setState(
+          () => error =
+              'Password reset instructions have been sent to your email.',
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -199,6 +253,24 @@ class _EntryState extends State<Entry> {
                   title: const Text(
                     'I consent to researchers reviewing class and commute activity. Exact GPS coordinates are never stored in the research database.',
                   ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: rememberEmail,
+                        onChanged: (v) => setState(() => rememberEmail = v!),
+                        title: const Text('Remember me'),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: busy ? null : resetPassword,
+                      child: const Text('Forgot password?'),
+                    ),
+                  ],
                 ),
               const SizedBox(height: 20),
               FilledButton(
@@ -452,7 +524,7 @@ class _DashboardState extends State<Dashboard> {
                 }
                 String time(TimeOfDay t) =>
                     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-                Navigator.pop(ctx, {
+                final candidate = {
                   'id':
                       existing?['id'] ??
                       DateTime.now().microsecondsSinceEpoch.toString(),
@@ -462,7 +534,23 @@ class _DashboardState extends State<Dashboard> {
                   'time': time(start),
                   'end': time(end),
                   'campus': campus,
-                });
+                  if (existing != null && existing['travel'] != null)
+                    'travel': existing['travel'],
+                };
+                final conflict = p.classes
+                    .where((c) => c['id'] != candidate['id'])
+                    .firstWhere(
+                      (c) => classesOverlap(candidate, c),
+                      orElse: () => {},
+                    );
+                if (conflict.isNotEmpty) {
+                  update(
+                    () => validation =
+                        '${conflict['name']} overlaps this class at ${conflict['time']}–${conflict['end']} on ${days[conflict['day']]}.',
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, candidate);
               },
               child: const Text('Save'),
             ),
@@ -492,7 +580,7 @@ class _DashboardState extends State<Dashboard> {
       leading: const Icon(Icons.school_outlined),
       title: Text(c['name']),
       subtitle: Text(
-        '${days[c['day']]} · ${c['time']}–${c['end']}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
+        '${days[c['day']]} · ${c['time']}–${c['end']}\n${classStatus(c, manilaNow())} · ${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
       ),
       onTap: () => addClass(c),
       trailing: IconButton(
@@ -528,7 +616,9 @@ class _DashboardState extends State<Dashboard> {
     final colors = TamarawPalette.of(context);
     final upcoming = p.upcoming;
     final next = upcoming.isEmpty ? null : upcoming.first;
-    final travel = (p.settings['travel'] as num).toInt();
+    final travel = next == null
+        ? (p.settings['travel'] as num).toInt()
+        : p.classTravelMinutes(next);
     final when = next == null ? null : nextOccurrence(next, manilaNow());
     final leave = when?.subtract(
       Duration(minutes: travel + (p.settings['buffer'] as num).toInt()),
@@ -886,10 +976,27 @@ class _DashboardState extends State<Dashboard> {
                         ),
                       ),
                     ),
-                  ...(p.classes..sort(
-                        (a, b) => (a['day'] as int).compareTo(b['day'] as int),
-                      ))
-                      .map(classTile),
+                  for (var dayIndex = 0; dayIndex < 7; dayIndex++)
+                    Builder(
+                      builder: (context) {
+                        final dayClasses = classesByDay(p.classes, dayIndex);
+                        if (dayClasses.isEmpty) return const SizedBox.shrink();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+                              child: Text(
+                                days[dayIndex],
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            ...dayClasses.map(classTile),
+                          ],
+                        );
+                      },
+                    ),
                 ],
               ),
               2 => Card(

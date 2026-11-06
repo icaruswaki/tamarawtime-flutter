@@ -11,13 +11,13 @@ flutter run
 
 Choose **Continue on this device** for a locally saved planner. This mode is separate from cloud accounts and does not collect research events. Local data is not encrypted; uninstalling or clearing app storage removes it.
 
-For the existing Supabase account/database:
+For the existing Supabase account/database, the Flutter app uses the same project defaults as the web app. You can override either value at launch:
 
 ```powershell
 flutter run --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co --dart-define=SUPABASE_ANON_KEY=YOUR_PUBLIC_KEY
 ```
 
-Use your public publishable/anon key, never a service-role key. The ZIP contains placeholder credentials, so no backend is configured by default. Email sign-in must be enabled. Confirm signup email in your browser, then return to the app and sign in. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, tasks, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
+Use your public publishable/anon key, never a service-role key. Email sign-in must be enabled. Confirm signup email, reset passwords through Supabase, then sign in. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, tasks, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
 
 ## Implemented
 
@@ -27,7 +27,7 @@ Use your public publishable/anon key, never a service-role key. The ZIP contains
 - Interactive OpenStreetMap, foreground GPS, walking/driving route geometry and automatic trip estimate.
 - Metro Manila jeepney relation discovery, ordered boarding/alighting stops, route selection and pedestrian connectors. No invented stops, live transit ETA, fares, or service availability.
 - Four themes, five-step guide, JSON backup copied to clipboard, cloud refresh, and confirmed planner reset.
-- Supabase signup/login, session persistence, serialized cloud writes and the original named research events. Coordinates are only held in memory and sent to external routing services, never written into planner payloads or research events.
+- Supabase signup/login, remembered email, password reset, session persistence, serialized cloud writes and the original named research events. Coordinates are only held in memory and sent to external routing services, never written into planner payloads or research events.
 - Separate opt-in device storage for use before configuring Supabase.
 
 Walking/driving estimates are applied to the open commute planner. Save as default commute to use those minutes on the dashboard. Changing destination/mode clears route overlays; transit always uses your editable total journey estimate. GPS stops when leaving the commute screen or backgrounding the application. It does not restart automatically after returning from the background.
