@@ -17,6 +17,47 @@ import 'support/journey_fixture.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('Timetables can require an earlier departure and a missed boarding is unavailable', () {
+    final now = DateTime.utc(2026, 11, 8, 1);
+    final option = JourneyOption(
+      id: 'scheduled',
+      duration: const Duration(minutes: 30),
+      points: const [],
+      updatedAt: now,
+      departure: now.add(const Duration(minutes: 15)),
+      arrival: now.add(const Duration(minutes: 45)),
+      steps: [
+        JourneyStep(
+          mode: 'TRANSIT',
+          departure: now.add(const Duration(minutes: 20)),
+        ),
+      ],
+    );
+    final advice = DepartureAdvice.calculate(
+      classStart: now.add(const Duration(hours: 2)),
+      now: now,
+      preparation: const Duration(minutes: 10),
+      buffer: const Duration(minutes: 15),
+      journey: option,
+    );
+    expect(advice.leaveAt, option.departure);
+    expect(advice.timetableLimited, isTrue);
+    final missed = JourneyOption(
+      id: 'missed',
+      duration: const Duration(minutes: 30),
+      points: const [],
+      updatedAt: now,
+      arrival: now.add(const Duration(minutes: 20)),
+      steps: [
+        JourneyStep(
+          mode: 'TRANSIT',
+          departure: now.subtract(const Duration(minutes: 1)),
+        ),
+      ],
+    );
+    expect(missed.freshAt(now), isFalse);
+  });
+
   test('Google itinerary parsing preserves stops, modes, geometry, fares and scheduled times', () {
     final received = DateTime.utc(2026, 11, 8, 1);
     final option = parseGoogleJourneys(
@@ -36,7 +77,7 @@ void main() {
     expect(option.transfers, 0);
     expect(option.walkingMeters, 400);
     expect(option.fare, 'PHP 25.50');
-    expect(option.departure, received);
+    expect(option.departure, received.subtract(const Duration(minutes: 5)));
     expect(option.arrival, DateTime.utc(2026, 11, 8, 1, 25));
   });
 

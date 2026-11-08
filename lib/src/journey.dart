@@ -78,11 +78,18 @@ class JourneyOption {
 
   bool freshAt(DateTime now) =>
       now.difference(updatedAt) <= const Duration(minutes: 5) &&
-      (arrival == null || arrival!.isAfter(now));
+      (arrival == null || arrival!.isAfter(now)) &&
+      !steps
+          .where((s) => s.transit)
+          .take(1)
+          .any((s) => s.departure != null && s.departure!.isBefore(now));
   String get sourceLabel => source == JourneySource.google
       ? 'Google Routes'
       : 'OpenStreetMap · no live traffic';
-  DateTime arrivalAt(DateTime now) => arrival ?? now.add(duration);
+  bool get hasArrivalEstimate =>
+      arrival != null || departure != null || !steps.any((s) => s.transit);
+  DateTime arrivalAt(DateTime now) =>
+      arrival ?? (departure ?? now).add(duration);
 }
 
 class JourneyQuery {
@@ -196,6 +203,7 @@ List<JourneyOption> parseGoogleJourneys(
             '${fare['currencyCode']} ${(units + nanos / 1e9).toStringAsFixed(2)}';
       }
     }
+    if (arrival != null) departure = arrival.subtract(duration);
     result.add(
       JourneyOption(
         id: 'google-${result.length}',
@@ -228,10 +236,12 @@ class DepartureAdvice {
     this.prepareAt,
     this.arriveAt,
     this.travelDuration,
+    this.timetableLimited = false,
   });
   final PunctualityStatus status;
   final DateTime? leaveAt, prepareAt, arriveAt;
   final Duration? travelDuration;
+  final bool timetableLimited;
   String get label => switch (status) {
     PunctualityStatus.onTrack => 'On track',
     PunctualityStatus.prepareSoon => 'Prepare soon',
@@ -246,10 +256,16 @@ class DepartureAdvice {
     required Duration buffer,
     JourneyOption? journey,
   }) {
-    if (journey == null || !journey.freshAt(now)) {
+    if (journey == null ||
+        !journey.freshAt(now) ||
+        !journey.hasArrivalEstimate) {
       return const DepartureAdvice(status: PunctualityStatus.unavailable);
     }
-    final leave = classStart.subtract(journey.duration + buffer);
+    final calculatedLeave = classStart.subtract(journey.duration + buffer);
+    final timetableLimited =
+        journey.departure != null &&
+        journey.departure!.isBefore(calculatedLeave);
+    final leave = timetableLimited ? journey.departure! : calculatedLeave;
     final prepare = leave.subtract(preparation);
     final arrival = journey.arrivalAt(now);
     final status = arrival.isAfter(classStart)
@@ -265,6 +281,7 @@ class DepartureAdvice {
       prepareAt: prepare,
       arriveAt: arrival,
       travelDuration: journey.duration,
+      timetableLimited: timetableLimited,
     );
   }
 }

@@ -97,7 +97,8 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
           mode != 'Jeepney' &&
           query != null &&
           (lastRequest == null ||
-              now().difference(lastRequest!) >= const Duration(minutes: 5))) {
+              now().difference(lastRequest!) >= const Duration(minutes: 5) ||
+              (selected != null && !selected!.freshAt(now())))) {
         unawaited(refresh(automatic: true));
       }
     });
