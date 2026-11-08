@@ -88,6 +88,7 @@ class AccountFixture {
   late final AccountAuth account;
   late final Planner planner;
   final requests = <http.Request>[];
+  Map<String, dynamic>? routesResponse;
   bool rejectPassword = false,
       failRecovery = false,
       failUpdate = false,
@@ -123,6 +124,12 @@ class AccountFixture {
   Future<http.Response> respond(http.Request request) async {
     requests.add(request);
     final path = request.url.path;
+    if (path.endsWith('/commute-routes')) {
+      return http.Response(
+        jsonEncode(routesResponse ?? {}),
+        routesResponse == null ? 503 : 200,
+      );
+    }
     Map<String, dynamic> body() =>
         jsonDecode(request.body) as Map<String, dynamic>;
     if (path.endsWith('/recover')) {
