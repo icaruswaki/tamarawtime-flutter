@@ -8,6 +8,7 @@ import 'transit_models.dart';
 import 'rail_reference_repository.dart';
 import 'sakay_reference.dart';
 import 'operating_route_source.dart';
+import 'rail_fares.dart';
 
 /// Call from the existing app's DI/state layer; no screens are overwritten.
 class TransitRepository {
@@ -70,6 +71,9 @@ class TransitRepository {
     await loadFares(),
     FareEstimatorService.parseServices(
       await rootBundle.loadString('assets/transit/verified_fare_services.json'),
+    ),
+    railFares: ReviewedRailFare.parse(
+      await rootBundle.loadString('assets/transit/rail_fares_reviewed.json'),
     ),
   );
 

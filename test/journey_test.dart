@@ -246,6 +246,7 @@ void main() {
     var roadCalls = 0;
     final service = JourneyService(
       null,
+      local: TestProvider(),
       road: (from, to, mode) async {
         roadCalls++;
         return RoutePlan([from, to], 21, 5000);

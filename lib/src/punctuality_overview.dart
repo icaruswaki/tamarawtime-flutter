@@ -87,7 +87,11 @@ class PunctualityOverview extends StatelessWidget {
               ),
               _Metric(
                 'Public transit',
-                option == null ? 'Unavailable' : '${option.minutes} min',
+                option == null
+                    ? 'Unavailable'
+                    : !option.hasDuration
+                    ? 'Route only · no ETA'
+                    : '${option.minutes} min',
               ),
               _Metric('Preparation', '$prep min'),
               _Metric('Arrival buffer', '$buffer min'),

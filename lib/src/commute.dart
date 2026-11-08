@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../transit/fare_estimator_view.dart';
 import '../transit/historical_transit_view.dart';
 import '../transit/transit_directory.dart';
 import '../transit/transit_reference_map.dart';
+import '../transit/local_rail_layer.dart';
+import '../transit/local_transit_provider.dart';
 import 'planner.dart';
 import 'routing.dart';
 import 'theme.dart';
@@ -166,6 +169,7 @@ class _RouteWorkspaceState extends State<_RouteWorkspace> {
 }
 
 class _CommuteState extends State<Commute> {
+  late final railGraph = LocalTransitProvider.loadBundledGraph();
   final map = MapController();
   final routeRevision = ValueNotifier(0);
   MapController? expandedMap;
@@ -278,7 +282,7 @@ class _CommuteState extends State<Commute> {
       status = j.message;
       if (changed) {
         line = option?.points ?? [];
-        if (option != null) travel.text = '${option.minutes}';
+        if (option?.hasDuration == true) travel.text = '${option!.minutes}';
       }
       if (j.permissionDenied || j.locating) {
         status = j.message;
@@ -391,11 +395,15 @@ class _CommuteState extends State<Commute> {
   Future<void> find() async {
     syncQuery();
     if (origin == null) {
-      update(
-        () => status =
-            'Choose an origin on the map or start GPS for your location.',
-      );
-      return;
+      await start();
+      if (!mounted) return;
+      if (origin == null) {
+        update(
+          () => status =
+              '${j.message} Choose an origin on the map or enter coordinates to continue.',
+        );
+        return;
+      }
     }
     if (busy) return;
     if (const Distance()(origin!, destination) < 10) {
@@ -591,208 +599,297 @@ class _CommuteState extends State<Commute> {
       body: SafeArea(
         top: false,
         child: LayoutBuilder(
-          builder: (context, constraints) => Column(
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: constraints.maxHeight * .48,
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
+          builder: (context, constraints) => constraints.maxWidth >= 1000
+              ? desktopWorkspace(controller)
+              : Column(
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight * .48,
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Row(
                               children: [
-                                endpointField(true),
-                                const SizedBox(height: 10),
-                                endpointField(false),
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      endpointField(true),
+                                      const SizedBox(height: 10),
+                                      endpointField(false),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Swap origin and destination',
+                                  onPressed: origin == null
+                                      ? null
+                                      : () {
+                                          final oldOrigin = origin!;
+                                          final oldName = originName;
+                                          originOverride = destination;
+                                          originName = destinationLabel;
+                                          destinationOverride = oldOrigin;
+                                          destinationName =
+                                              oldName == 'Your location'
+                                              ? 'Previous location'
+                                              : oldName;
+                                          j.setOrigin(
+                                            originOverride!,
+                                            originName,
+                                            refresh: false,
+                                          );
+                                          picking = null;
+                                          reset();
+                                        },
+                                  icon: const Icon(Icons.swap_vert),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: FilledButton.icon(
+                                onPressed: busy ? null : find,
+                                icon: const Icon(Icons.directions_transit),
+                                label: const Text('Find public transit'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Positioned.fill(child: buildMap(controller)),
+                          if (picking != null)
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              right: 12,
+                              child: Material(
+                                elevation: 3,
+                                borderRadius: BorderRadius.circular(12),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
+                                child: ListTile(
+                                  title: Text('Tap to place your $picking'),
+                                  trailing: IconButton(
+                                    tooltip: 'Cancel map selection',
+                                    onPressed: () =>
+                                        update(() => picking = null),
+                                    icon: const Icon(Icons.close),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Positioned(
+                            right: 12,
+                            top: hasRouteDetails ? 12 : null,
+                            bottom: hasRouteDetails ? null : 32,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                FloatingActionButton.small(
+                                  heroTag: 'route-gps',
+                                  tooltip: tracking
+                                      ? 'Stop tracking'
+                                      : 'Start GPS',
+                                  onPressed: tracking ? stop : start,
+                                  child: Icon(
+                                    tracking
+                                        ? Icons.location_disabled
+                                        : Icons.my_location,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                FloatingActionButton.small(
+                                  heroTag: 'route-fit',
+                                  tooltip: 'Show entire route',
+                                  onPressed: () {
+                                    if (origin != null) {
+                                      fit([
+                                        origin!,
+                                        destination,
+                                        ...line,
+                                        ...access,
+                                        ...exit,
+                                      ]);
+                                    } else {
+                                      if (GoogleMapsSetup.available) {
+                                        fit([destination]);
+                                      } else {
+                                        controller.move(destination, 14);
+                                      }
+                                    }
+                                  },
+                                  child: const Icon(Icons.center_focus_strong),
+                                ),
                               ],
                             ),
                           ),
-                          IconButton(
-                            tooltip: 'Swap origin and destination',
-                            onPressed: origin == null
-                                ? null
-                                : () {
-                                    final oldOrigin = origin!;
-                                    final oldName = originName;
-                                    originOverride = destination;
-                                    originName = destinationLabel;
-                                    destinationOverride = oldOrigin;
-                                    destinationName = oldName == 'Your location'
-                                        ? 'Previous location'
-                                        : oldName;
-                                    j.setOrigin(
-                                      originOverride!,
-                                      originName,
-                                      refresh: false,
-                                    );
-                                    picking = null;
-                                    reset();
-                                  },
-                            icon: const Icon(Icons.swap_vert),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.icon(
-                          onPressed: busy ? null : find,
-                          icon: const Icon(Icons.directions_transit),
-                          label: const Text('Find public transit'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: buildMap(controller)),
-                    if (picking != null)
-                      Positioned(
-                        top: 12,
-                        left: 12,
-                        right: 12,
-                        child: Material(
-                          elevation: 3,
-                          borderRadius: BorderRadius.circular(12),
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          child: ListTile(
-                            title: Text('Tap to place your $picking'),
-                            trailing: IconButton(
-                              tooltip: 'Cancel map selection',
-                              onPressed: () => update(() => picking = null),
-                              icon: const Icon(Icons.close),
+                          if (picking == null && hasRouteDetails)
+                            DraggableScrollableSheet(
+                              key: const ValueKey('journey-details-sheet'),
+                              initialChildSize: .28,
+                              minChildSize: .18,
+                              maxChildSize: .85,
+                              builder: (context, scroll) => Material(
+                                elevation: 8,
+                                color: Theme.of(context).colorScheme.surface,
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(26),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: SingleChildScrollView(
+                                  controller: scroll,
+                                  padding: const EdgeInsets.all(18),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Center(
+                                        child: Container(
+                                          width: 36,
+                                          height: 4,
+                                          margin: const EdgeInsets.only(
+                                            bottom: 14,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .dividerColor,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      SectionHeading(
+                                        j.selected?.hasDuration != true
+                                            ? 'Travel estimates'
+                                            : '${j.selected!.minutes} min to your destination',
+                                        subtitle: 'Swipe up for route options and steps',
+                                      ),
+                                      const SizedBox(height: 16),
+                                      ...routeCards(),
+                                      ExternalDirections(journey: j),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      right: 12,
-                      top: hasRouteDetails ? 12 : null,
-                      bottom: hasRouteDetails ? null : 32,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FloatingActionButton.small(
-                            heroTag: 'route-gps',
-                            tooltip: tracking ? 'Stop tracking' : 'Start GPS',
-                            onPressed: tracking ? stop : start,
-                            child: Icon(
-                              tracking
-                                  ? Icons.location_disabled
-                                  : Icons.my_location,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          FloatingActionButton.small(
-                            heroTag: 'route-fit',
-                            tooltip: 'Show entire route',
-                            onPressed: () {
-                              if (origin != null) {
-                                fit([
-                                  origin!,
-                                  destination,
-                                  ...line,
-                                  ...access,
-                                  ...exit,
-                                ]);
-                              } else {
-                                if (GoogleMapsSetup.available) {
-                                  fit([destination]);
-                                } else {
-                                  controller.move(destination, 14);
-                                }
-                              }
-                            },
-                            child: const Icon(Icons.center_focus_strong),
-                          ),
                         ],
                       ),
                     ),
-                    if (picking == null && hasRouteDetails)
-                      DraggableScrollableSheet(
-                        key: const ValueKey('journey-details-sheet'),
-                        initialChildSize: .28,
-                        minChildSize: .18,
-                        maxChildSize: .85,
-                        builder: (context, scroll) => Material(
-                          elevation: 8,
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(26),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: SingleChildScrollView(
-                            controller: scroll,
-                            padding: const EdgeInsets.all(18),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Center(
-                                  child: Container(
-                                    width: 36,
-                                    height: 4,
-                                    margin: const EdgeInsets.only(bottom: 14),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context).dividerColor,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                ),
-                                SectionHeading(
-                                  j.selected == null
-                                      ? 'Travel estimates'
-                                      : '${j.selected!.minutes} min to your destination',
-                                  subtitle:
-                                      'Swipe up for route options and steps',
-                                ),
-                                const SizedBox(height: 16),
-                                ...routeCards(),
-                                ExternalDirections(journey: j),
-                              ],
-                            ),
-                          ),
+                    if (busy) const LinearProgressIndicator(),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight * .24,
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(status),
+                            if (tileError)
+                              const Text(
+                                'Map tiles are unavailable. Check your connection.',
+                              ),
+                          ],
                         ),
                       ),
+                    ),
                   ],
                 ),
-              ),
-              if (busy) const LinearProgressIndicator(),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: constraints.maxHeight * .24,
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(status),
-                      if (tileError)
-                        const Text(
-                          'Map tiles are unavailable. Check your connection.',
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 
+  Widget desktopWorkspace(MapController controller) => Row(
+    key: const ValueKey('desktop-journey-workspace'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      SizedBox(
+        width: 390,
+        child: Material(
+          color: Theme.of(context).colorScheme.surface,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                endpointField(true),
+                const SizedBox(height: 12),
+                endpointField(false),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: busy ? null : find,
+                  icon: const Icon(Icons.directions_transit),
+                  label: const Text('Find public transit'),
+                ),
+                const SizedBox(height: 12),
+                Text(status),
+                if (busy) const LinearProgressIndicator(),
+                const SizedBox(height: 16),
+                ...routeCards(),
+                ExternalDirections(journey: j),
+              ],
+            ),
+          ),
+        ),
+      ),
+      Expanded(
+        child: Stack(
+          children: [
+            Positioned.fill(child: buildMap(controller)),
+            if (picking != null)
+              Positioned(
+                top: 12,
+                left: 12,
+                right: 70,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text('Tap to place your $picking'),
+                  ),
+                ),
+              ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: FloatingActionButton.small(
+                heroTag: 'desktop-route-gps',
+                tooltip: tracking ? 'Stop tracking' : 'Start GPS',
+                onPressed: tracking ? stop : start,
+                child: const Icon(Icons.my_location),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+
   Widget buildMap(MapController controller, {bool preview = false}) {
     final option = j.selected;
     final routes = <MapRouteLine>[
+      if (!showDrivingAlternative)
+        for (final other in j.options.where(
+          (o) => !identical(o, option) && o.source != JourneySource.google,
+        ))
+          for (final step in other.steps)
+            if (step.points.length > 1)
+              MapRouteLine(
+                step.points,
+                const Color(0xffaa8d42).withValues(alpha: .25),
+                walking: step.walking,
+              ),
       if (option != null && option.steps.any((s) => s.points.isNotEmpty)) ...[
         for (var i = 0; i < option.steps.length; i++)
           if (option.steps[i].points.isNotEmpty)
@@ -847,6 +944,7 @@ class _CommuteState extends State<Commute> {
             });
           },
         ),
+        LocalRailLayer(graph: railGraph),
         PolylineLayer(
           polylines: [
             if (!googleContent)
@@ -855,6 +953,9 @@ class _CommuteState extends State<Commute> {
                   points: route.points,
                   color: route.color,
                   strokeWidth: route.walking ? 4 : 6,
+                  pattern: route.walking
+                      ? const StrokePattern.dotted()
+                      : const StrokePattern.solid(),
                 ),
           ],
         ),
@@ -932,9 +1033,14 @@ class _CommuteState extends State<Commute> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             color: Theme.of(context).colorScheme.surface,
-            child: const Text(
-              '© OpenStreetMap contributors',
-              style: TextStyle(fontSize: 11),
+            child: InkWell(
+              onTap: () => launchUrl(
+                Uri.parse('https://www.openstreetmap.org/copyright'),
+              ),
+              child: const Text(
+                '© OpenStreetMap contributors · ODbL',
+                style: TextStyle(fontSize: 11),
+              ),
             ),
           ),
         ),
@@ -955,7 +1061,11 @@ class _CommuteState extends State<Commute> {
 
   List<Widget> routeCards() => [
     if (j.options.isNotEmpty) ...[
-      JourneyOptions(journey: j),
+      JourneyOptions(
+        journey: j,
+        repository: widget.planner.transit,
+        studentDiscount: widget.planner.studentDiscount,
+      ),
       if (j.selected != null) JourneyTimeline(option: j.selected!),
     ],
     RoadEstimates(
@@ -1021,7 +1131,8 @@ class _CommuteState extends State<Commute> {
   @override
   Widget build(BuildContext context) {
     final c = chosen;
-    final valid = j.matches(destination, routeMode);
+    final valid =
+        j.matches(destination, routeMode) && j.selected?.hasDuration == true;
     final journey = valid
         ? j.selected!.minutes
         : int.tryParse(travel.text) ?? 55;

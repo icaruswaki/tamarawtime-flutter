@@ -26,7 +26,11 @@ Duration? providerDuration(dynamic value) {
   return Duration(milliseconds: (seconds * 1000).round());
 }
 
-enum JourneySource { google, openStreetMap, openTripPlanner }
+enum JourneySource { google, openStreetMap, openTripPlanner, localGraph }
+
+abstract interface class JourneyProvider {
+  Future<List<JourneyOption>> fetch(JourneyQuery query);
+}
 
 abstract interface class TransitAvailability {
   String? get transitUnavailableReason;
@@ -52,6 +56,8 @@ class JourneyStep {
     this.boardingPoint,
     this.alightingPoint,
     this.interlineWithPreviousLeg = false,
+    this.timingSource,
+    this.waitingDuration,
   });
   final String mode;
   final String? instruction,
@@ -70,6 +76,8 @@ class JourneyStep {
   final List<LatLng> points;
   final LatLng? boardingPoint, alightingPoint;
   final bool interlineWithPreviousLeg;
+  final String? timingSource;
+  final Duration? waitingDuration;
   bool get transit => mode == 'TRANSIT';
   bool get walking => mode == 'WALK';
 }
@@ -77,7 +85,7 @@ class JourneyStep {
 class JourneyOption {
   const JourneyOption({
     required this.id,
-    required this.duration,
+    required Duration? duration,
     required this.points,
     required this.steps,
     required this.updatedAt,
@@ -87,9 +95,19 @@ class JourneyOption {
     this.arrival,
     this.source = JourneySource.google,
     this.providerTransfers,
-  });
+    this.limitations = const [],
+  }) : estimatedDuration = duration;
   final String id;
-  final Duration duration;
+  final Duration? estimatedDuration;
+  bool get hasDuration => estimatedDuration != null;
+  // Retain the timed-provider API. Instruction-only routes never use this
+  // getter: there is no zero/minimum duration standing in for missing data.
+  Duration get duration =>
+      estimatedDuration ??
+      (throw StateError(
+        'This journey has instructions but no total duration.',
+      ));
+  final List<String> limitations;
   final double? meters;
   final List<LatLng> points;
   final List<JourneyStep> steps;
@@ -122,9 +140,15 @@ class JourneyOption {
     JourneySource.openStreetMap => 'OpenStreetMap · no live traffic',
     JourneySource.openTripPlanner =>
       'OpenTripPlanner · current GTFS schedule · not a live arrival prediction',
+    JourneySource.localGraph =>
+      'Local transit model · verify service before travel · not live arrivals',
   };
   bool get hasArrivalEstimate =>
-      arrival != null || departure != null || !steps.any((s) => s.transit);
+      hasDuration &&
+      (source == JourneySource.localGraph ||
+          arrival != null ||
+          departure != null ||
+          !steps.any((s) => s.transit));
   DateTime arrivalAt(DateTime now) =>
       arrival ?? (departure ?? now).add(duration);
 }

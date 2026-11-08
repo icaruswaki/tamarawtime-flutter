@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../src/journey.dart';
 import 'fare_calculator.dart';
+import 'rail_fares.dart';
 
 /// Independent current service verification, separate from historical GTFS.
 /// A generic BUS vehicle type or a matching route name is insufficient.
@@ -60,9 +61,11 @@ class VerifiedFareService {
 }
 
 class EstimatedFareLeg {
-  const EstimatedFareLeg(this.step, this.service, this.estimate);
+  const EstimatedFareLeg(this.step, this.service, this.estimate, {this.rail});
   final JourneyStep step;
-  final VerifiedFareService service;
+  final VerifiedFareService? service;
+  final ReviewedRailFare? rail;
+  String get evidenceUrl => rail?.review.source ?? service!.evidenceUrl;
   final FareEstimate estimate;
 }
 
@@ -78,9 +81,14 @@ class JourneyFareEstimate {
 }
 
 class FareEstimatorService {
-  const FareEstimatorService(this.calculator, this.services);
+  const FareEstimatorService(
+    this.calculator,
+    this.services, {
+    this.railFares = const [],
+  });
   final FareCalculator calculator;
   final List<VerifiedFareService> services;
+  final List<ReviewedRailFare> railFares;
 
   static List<VerifiedFareService> parseServices(String source) {
     final json = jsonDecode(source) as Map<String, dynamic>;
@@ -121,6 +129,31 @@ class FareEstimatorService {
     final legs = <EstimatedFareLeg>[];
     var missing = 0;
     for (final step in journey.steps.where((step) => !step.walking)) {
+      final railMatches = railFares
+          .where(
+            (fare) =>
+                fare.quote(step, now) != null &&
+                fare.quote(step, step.departure ?? journey.departure ?? now) !=
+                    null,
+          )
+          .toList();
+      if (railMatches.length == 1) {
+        final rail = railMatches.single,
+            price = railMatches.single.quote(step, now)!;
+        legs.add(
+          EstimatedFareLeg(
+            step,
+            null,
+            FareEstimate(
+              price,
+              price,
+              'Published stored-value fare; no extra student discount inferred.',
+            ),
+            rail: rail,
+          ),
+        );
+        continue;
+      }
       final matches = services
           .where(
             (service) =>
@@ -135,7 +168,11 @@ class FareEstimatorService {
       // Use the provider's traveled distance for THIS ride. Never use total-trip
       // distance, polyline length, GPS straight lines or historical stop shapes.
       final fare =
-          journey.source == JourneySource.google &&
+          {
+                JourneySource.google,
+                JourneySource.openTripPlanner,
+                JourneySource.localGraph,
+              }.contains(journey.source) &&
               step.transit &&
               matches.length == 1 &&
               meters != null &&

@@ -67,8 +67,8 @@ class FareEstimator extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   '${leg.step.lineName ?? 'Transit ride'} · '
-                  '${service!.calculator.rules[leg.service.fareMode]!.label}\n'
-                  '${(leg.step.meters! / 1000).toStringAsFixed(2)} km traveled · '
+                  '${leg.rail?.label ?? service!.calculator.rules[leg.service!.fareMode]!.label}\n'
+                  '${leg.rail != null ? 'Station-pair fare · ' : '${(leg.step.meters! / 1000).toStringAsFixed(2)} km traveled · '}'
                   'PHP ${(studentDiscount ? leg.estimate.studentFare : leg.estimate.fullFare).toStringAsFixed(2)} estimated',
                 ),
               ),
@@ -77,6 +77,10 @@ class FareEstimator extends StatelessWidget {
                 '${estimate.unavailableLegs} other ride(s): Fare not available. This is not a trip total.',
               ),
             const SizedBox(height: 8),
+            if (estimate.legs.any((leg) => leg.rail != null))
+              const Text(
+                'Rail fares use the published stored-value matrix. No additional student discount is inferred or stacked.',
+              ),
             const Text(
               'Reference estimate only. Illustrative PHP 0.25 rounding; confirm the posted LTFRB/operator matrix.',
             ),
@@ -113,12 +117,10 @@ class FareEstimator extends StatelessWidget {
                   for (final leg in estimate.legs)
                     TextButton(
                       onPressed: () => launchUrl(
-                        Uri.parse(leg.service.evidenceUrl),
+                        Uri.parse(leg.evidenceUrl),
                         mode: LaunchMode.externalApplication,
                       ),
-                      child: Text(
-                        'Service verification: ${leg.service.evidenceUrl}',
-                      ),
+                      child: Text('Service verification: ${leg.evidenceUrl}'),
                     ),
               ],
             ),

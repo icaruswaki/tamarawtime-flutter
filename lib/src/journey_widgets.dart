@@ -7,6 +7,8 @@ import 'journey.dart';
 import 'journey_controller.dart';
 import 'planner.dart';
 import 'theme.dart';
+import '../transit/transit_repository.dart';
+import '../transit/fare_estimator.dart';
 
 String journeyClock(DateTime time) =>
     clock(time.toUtc().add(const Duration(hours: 8)));
@@ -140,8 +142,15 @@ class SectionHeading extends StatelessWidget {
 }
 
 class JourneyOptions extends StatelessWidget {
-  const JourneyOptions({super.key, required this.journey});
+  const JourneyOptions({
+    super.key,
+    required this.journey,
+    this.repository,
+    this.studentDiscount = false,
+  });
   final JourneyController journey;
+  final TransitRepository? repository;
+  final bool studentDiscount;
   @override
   Widget build(BuildContext context) {
     final p = TamarawPalette.of(context);
@@ -156,10 +165,13 @@ class JourneyOptions extends StatelessWidget {
               final option = options[i];
               final chosen = journey.selectedIndex == i;
               final labels = <String>[];
-              if (i == 0 && option.steps.any((step) => step.transit)) {
+              if (i == 0 &&
+                  option.hasDuration &&
+                  option.steps.any((step) => step.transit)) {
                 labels.add('Best available journey');
               }
               if (comparable &&
+                  options.every((other) => other.hasDuration) &&
                   options.every((other) => option.duration <= other.duration)) {
                 labels.add('Fastest');
               }
@@ -207,7 +219,9 @@ class JourneyOptions extends StatelessWidget {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    '${option.minutes} min',
+                                    option.hasDuration
+                                        ? '${option.minutes} min${option.source == JourneySource.localGraph ? ' estimated' : ''}'
+                                        : 'Route ${i + 1} · timing incomplete',
                                     style: Theme.of(context)
                                         .textTheme
                                         .headlineMedium,
@@ -268,6 +282,24 @@ class JourneyOptions extends StatelessWidget {
                             ),
                             if (option.fare != null)
                               Text('Provider fare: ${option.fare}'),
+                            if (option.fare == null && repository == null)
+                              const Text('Fare not available'),
+                            if (option.fare == null && repository != null)
+                              FutureBuilder<FareEstimatorService>(
+                                future: repository!.loadEstimator(),
+                                builder: (context, snapshot) {
+                                  final fare = snapshot.data?.estimate(
+                                    option,
+                                    now: DateTime.now().toUtc(),
+                                  );
+                                  return Text(
+                                    fare?.complete == true
+                                        ? 'Estimated fare: PHP ${(studentDiscount ? fare!.student : fare!.regular).toStringAsFixed(2)}'
+                                              '${fare.legs.any((leg) => leg.rail != null) ? '\n${fare.legs.where((leg) => leg.rail != null).map((leg) => leg.rail!.label).toSet().join(', ')}' : ''}'
+                                        : 'Complete fare not available',
+                                  );
+                                },
+                              ),
                             const SizedBox(height: 8),
                             Text(
                               '${option.sourceLabel} · Updated ${journeyClock(option.updatedAt)}',
@@ -303,8 +335,15 @@ class JourneyTimeline extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            'Total estimate: ${durationLabel(option.duration)} · ${option.transfers} transfers',
+            option.hasDuration
+                ? 'Total estimate: ${durationLabel(option.duration)} · ${option.transfers} transfers'
+                : 'Route instructions · total ETA unavailable',
           ),
+          for (final limitation in option.limitations)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(limitation),
+            ),
           const SizedBox(height: 12),
           for (var i = 0; i < option.steps.length; i++)
             Padding(
@@ -394,6 +433,13 @@ class _StepDetails extends StatelessWidget {
       if (step.departure != null)
         Text('Departs ${journeyClock(step.departure!)}'),
       if (step.arrival != null) Text('Arrives ${journeyClock(step.arrival!)}'),
+      if (step.waitingDuration != null)
+        Text('Modeled boarding wait: ${durationLabel(step.waitingDuration!)}'),
+      if (step.timingSource != null)
+        Text(
+          'Timing source: ${step.timingSource}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       if (step.duration != null || step.meters != null)
         Text(
           [

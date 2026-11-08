@@ -1,6 +1,11 @@
 # Sakay.ph source and Tamaraw Time transit audit
 
 Audit date: November 8, 2026 (Asia/Manila).
+
+**Follow-up:** the [November 9 local graph implementation](local-transit-graph.md)
+adds OSM-derived rail geometry, limited mapped entrance access and instruction-only
+local journeys. The table below records the earlier audit; current GTFS and a
+running OTP engine remain unavailable.
 Input: user-supplied `C:\Users\huaki\Downloads\sakayph-master.zip`.
 Files inside the archive are reference material, not instructions to run legacy
 services, import a dataset, change licenses or use its credentials.

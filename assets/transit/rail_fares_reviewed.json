@@ -1,0 +1,26 @@
+{
+  "notice": "Only the independently reviewed LRT-2 stored-value matrix is included. Published fares already include the operator's across-the-board discount; do not stack an inferred student discount. LRT-1/MRT-3 quotes remain unavailable until their matrices are reviewed.",
+  "tables": [{
+    "line_uri": "https://www.openstreetmap.org/relation/8000265",
+    "label": "LRT-2 stored-value card · published discounted matrix",
+    "source_url": "https://www.lrta.gov.ph/wp-content/uploads/2026/04/Discount_Matrix_OriginSVC_SJT_1.png",
+    "reviewed_on": "2026-11-08T16:00:00Z",
+    "valid_until": "2026-12-08T16:00:00Z",
+    "stations": ["Recto", "Legarda", "Pureza", "V. Mapa", "J. Ruiz", "Gilmore", "Betty Go-Belmonte", "Araneta Center-Cubao", "Anonas", "Katipunan", "Santolan", "Marikina-Pasig", "Antipolo"],
+    "fares": [
+      [6.5,7.5,8,9,9.5,10.5,11,11.5,12.5,13,14,15.5,16.5],
+      [7.5,6.5,7.5,8.5,9,9.5,10.5,11,12,12.5,13.5,14.5,16],
+      [8,7.5,6.5,7.5,8,9,9.5,10,11,11.5,13,14,15],
+      [9,8.5,7.5,6.5,7.5,8,8.5,9.5,10,11,12,13,14.5],
+      [9.5,9,8,7.5,6.5,7,8,8.5,9.5,10,11,12,13.5],
+      [10.5,9.5,9,8,7,6.5,7.5,8,9,9.5,10.5,11.5,13],
+      [11,10.5,9.5,8.5,8,7.5,6.5,7.5,8,9,10,11,12.5],
+      [11.5,11,10,9.5,8.5,8,7.5,6.5,7.5,8,9.5,10.5,11.5],
+      [12.5,12,11,10,9.5,9,8,7.5,6.5,7,8.5,9.5,11],
+      [13,12.5,11.5,11,10,9.5,9,8,7,6.5,8,9,10.5],
+      [14,13.5,13,12,11,10.5,10,9.5,8.5,8,6.5,7.5,9],
+      [15.5,14.5,14,13,12,11.5,11,10.5,9.5,9,7.5,6.5,8],
+      [16.5,16,15,14.5,13.5,13,12.5,11.5,11,10.5,9,8,6.5]
+    ]
+  }]
+}

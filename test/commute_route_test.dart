@@ -2,11 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tamaraw_time/src/commute.dart';
+import 'package:tamaraw_time/src/journey_controller.dart';
 import 'package:tamaraw_time/src/planner.dart';
 import 'package:tamaraw_time/src/theme.dart';
 
+import 'support/journey_fixture.dart';
+
+class DisabledLocation extends TestLocation {
+  @override
+  Future<bool> enabled() async => false;
+}
+
 Future<void> openRoutes(WidgetTester tester, {double textScale = 1}) async {
-  final planner = Planner(null)..local = true;
+  final location = DisabledLocation();
+  final planner = Planner(
+    null,
+    journey: JourneyController(provider: TestProvider(), location: location),
+  )..local = true;
+  addTearDown(() async {
+    planner.dispose();
+    await location.positions.close();
+  });
   await tester.pumpWidget(
     MaterialApp(
       theme: tamarawTheme('forest'),

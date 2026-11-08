@@ -103,6 +103,7 @@ void main() {
     final controller = JourneyController(
       provider: JourneyService(
         null,
+        local: TestProvider(),
         transit: OtpJourneyProvider(
           endpoint: Uri.parse('http://localhost:8090/plan'),
           client: client,

@@ -4,7 +4,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:tamaraw_time/src/journey.dart';
 import 'package:tamaraw_time/src/journey_controller.dart';
-import 'package:tamaraw_time/src/journey_service.dart';
 import 'package:tamaraw_time/src/routing.dart';
 
 Map<String, dynamic> googleFixture() => {

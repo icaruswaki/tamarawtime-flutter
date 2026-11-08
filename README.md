@@ -81,6 +81,14 @@ Use a hot restart after updating the app. Color schemes are selected in Settings
 
 ## Optional scheduled-transit router
 
+The [local rail planner](docs/local-transit-graph.md) now supplies connected
+LRT-1/LRT-2/MRT-3 network instructions when actual OSRM pedestrian access is
+available. It includes inspected OSM track geometry, station information,
+up to three journey alternatives, a mobile results sheet and desktop sidebar.
+The bundled graph lacks validated rail timing, so it does not produce total
+transit ETAs. Supported fares are independent of timing. Historical Sakay
+data remains reference-only; walking and driving estimates remain independent.
+
 The [Sakay source and data audit](docs/sakay-otp-integration.md) explains what
 the original web frontend contributed and which current data is still missing.
 The [OTP Windows/Docker guide](backend/otp/README.md) provides a pinned OTP 2.8.1

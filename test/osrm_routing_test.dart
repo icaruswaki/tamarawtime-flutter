@@ -134,7 +134,9 @@ void main() {
     'Actual OSRM response reaches dashboard, commute cards and driving map without transit',
     (tester) async {
       final requests = <Uri>[];
-      final controller = JourneyController(provider: JourneyService(null));
+      final controller = JourneyController(
+        provider: JourneyService(null, local: TestProvider()),
+      );
       final planner = Planner(null, journey: controller)..local = true;
       configure(controller);
       await http.runWithClient(

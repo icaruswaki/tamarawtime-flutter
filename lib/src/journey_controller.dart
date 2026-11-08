@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'journey.dart';
-import 'journey_service.dart';
 
 abstract interface class LocationGateway {
   Future<bool> enabled();
