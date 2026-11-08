@@ -18,21 +18,37 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Tamaraw Time — your FEU class schedule and commute companion.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="tamaraw_time">
+  <meta name="apple-mobile-web-app-title" content="Tamaraw Time">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>tamaraw_time</title>
+  <title>Tamaraw Time</title>
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script>
+    // This is a restricted browser Maps key, never the server Routes API key.
+    window.loadTamarawGoogleMaps = function (key) {
+      if (window.google && window.google.maps) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        const script = document.createElement('script');
+        window.tamarawMapsReady = () => resolve(true);
+        script.src = 'https://maps.googleapis.com/maps/api/js?key=' +
+          encodeURIComponent(key) + '&loading=async&callback=tamarawMapsReady';
+        script.onerror = () => resolve(false);
+        script.async = true;
+        document.head.appendChild(script);
+        setTimeout(() => resolve(false), 12000);
+      });
+    };
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

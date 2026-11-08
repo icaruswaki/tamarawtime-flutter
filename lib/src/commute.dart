@@ -9,6 +9,10 @@ import 'planner.dart';
 import 'routing.dart';
 import 'theme.dart';
 import 'responsive.dart';
+import 'journey.dart';
+import 'journey_controller.dart';
+import 'journey_widgets.dart';
+import 'google_journey_map.dart';
 
 class Commute extends StatefulWidget {
   const Commute({super.key, required this.planner, required this.onSave});
@@ -16,6 +20,102 @@ class Commute extends StatefulWidget {
   final Future<void> Function() onSave;
   @override
   State<Commute> createState() => _CommuteState();
+}
+
+class _OriginDialog extends StatefulWidget {
+  const _OriginDialog({this.initial});
+  final LatLng? initial;
+  @override
+  State<_OriginDialog> createState() => _OriginDialogState();
+}
+
+class _OriginDialogState extends State<_OriginDialog> {
+  final form = GlobalKey<FormState>();
+  final label = TextEditingController(text: 'Starting point');
+  late final latitude = TextEditingController(
+    text: widget.initial?.latitude.toString(),
+  );
+  late final longitude = TextEditingController(
+    text: widget.initial?.longitude.toString(),
+  );
+  @override
+  void dispose() {
+    label.dispose();
+    latitude.dispose();
+    longitude.dispose();
+    super.dispose();
+  }
+
+  String? coordinate(String? value, double limit) {
+    final n = double.tryParse(value ?? '');
+    return n == null || !n.isFinite || n.abs() > limit
+        ? 'Enter a value from -$limit to $limit.'
+        : null;
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Your starting point'),
+    scrollable: true,
+    content: SizedBox(
+      width: 400,
+      child: Form(
+        key: form,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Enter coordinates, or cancel and choose a point on the map.',
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: label,
+              maxLength: 40,
+              decoration: const InputDecoration(labelText: 'Location name'),
+              validator: (v) =>
+                  (v ?? '').trim().isEmpty ? 'Enter a name.' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: latitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(labelText: 'Latitude'),
+              validator: (v) => coordinate(v, 90),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: longitude,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: true,
+              ),
+              decoration: const InputDecoration(labelText: 'Longitude'),
+              validator: (v) => coordinate(v, 180),
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (!form.currentState!.validate()) return;
+          Navigator.pop(context, (
+            LatLng(double.parse(latitude.text), double.parse(longitude.text)),
+            label.text.trim(),
+          ));
+        },
+        child: const Text('Use this origin'),
+      ),
+    ],
+  );
 }
 
 class _RouteWorkspace extends StatefulWidget {
@@ -60,11 +160,15 @@ class _RouteWorkspaceState extends State<_RouteWorkspace> {
   );
 }
 
-class _CommuteState extends State<Commute> with WidgetsBindingObserver {
+class _CommuteState extends State<Commute> {
   final map = MapController();
   final routeRevision = ValueNotifier(0);
   MapController? expandedMap;
-  StreamSubscription<Position>? gps;
+  JourneyController get j => widget.planner.journey;
+  JourneyOption? lastOption;
+  bool tileError = false;
+  final previewGoogleMap = GlobalKey<GoogleJourneyMapState>();
+  final expandedGoogleMap = GlobalKey<GoogleJourneyMapState>();
   LatLng? position;
   LatLng? originOverride, destinationOverride;
   String originName = 'Your location';
@@ -111,19 +215,72 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    j.bindLifecycle();
+    position = j.origin;
+    if (j.manualOrigin) originOverride = j.origin;
+    originName = j.originLabel;
+    j.addListener(sharedChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      syncQuery();
+      sharedChanged();
+    });
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed) stop();
+  void syncQuery({bool refresh = false}) {
+    final c = chosen;
+    final target = c == null
+        ? null
+        : nextOccurrence(c, manilaNow()).subtract(
+            Duration(hours: 8, minutes: int.tryParse(buffer.text) ?? 15),
+          );
+    j.configure(
+      destination: destination,
+      label: destinationLabel,
+      mode: mode,
+      arriveBy:
+          target != null &&
+              target.isAfter(DateTime.now()) &&
+              destinationOverride == null
+          ? target
+          : null,
+      autoRefresh: refresh,
+    );
+  }
+
+  void sharedChanged() {
+    if (!mounted) return;
+    final option = j.selected;
+    final changed = !identical(lastOption, option);
+    update(() {
+      position = j.origin;
+      originOverride = j.manualOrigin ? j.origin : null;
+      originName = j.originLabel;
+      tracking = j.tracking;
+      if (mode != 'Jeepney') {
+        busy = j.loading;
+        status = j.message;
+        if (changed) {
+          line = option?.points ?? [];
+          if (option != null) travel.text = '${option.minutes}';
+        }
+      } else if (j.permissionDenied || j.locating) {
+        status = j.message;
+      }
+      lastOption = option;
+    });
+    if (changed && option != null && origin != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) fit([origin!, destination, ...line]);
+      });
+    }
   }
 
   @override
   void dispose() {
     serial++;
-    WidgetsBinding.instance.removeObserver(this);
-    gps?.cancel();
+    j.removeListener(sharedChanged);
+    j.unbindLifecycle();
     map.dispose();
     routeRevision.dispose();
     travel.dispose();
@@ -133,8 +290,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   }
 
   void stop() {
-    gps?.cancel();
-    gps = null;
+    j.stopTracking();
     serial++;
     if (mounted) {
       update(() {
@@ -157,62 +313,33 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
       selected = null;
       status = 'Origin, destination or mode changed. Find a new route.';
     });
+    syncQuery(refresh: true);
+    if (origin != null && mode != 'Jeepney') j.scheduleRefresh();
     if (origin != null) {
       fit([origin!, destination]);
     } else {
-      map.move(destination, 14);
-      expandedMap?.move(destination, 14);
+      if (GoogleMapsSetup.available) {
+        fit([destination]);
+      } else {
+        map.move(destination, 14);
+        expandedMap?.move(destination, 14);
+      }
     }
   }
 
   Future<void> start() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        throw Exception('Enable location services on your device.');
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        throw Exception(
-          'Location permission is required. Enable it in app settings if blocked.',
-        );
-      }
-      await gps?.cancel();
-      if (!mounted) return;
-      update(() {
-        tracking = true;
-        status = 'Waiting for GPS…';
-      });
-      gps =
-          Geolocator.getPositionStream(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 30,
-            ),
-          ).listen(
-            (p) {
-              if (!mounted) return;
-              update(() {
-                position = LatLng(p.latitude, p.longitude);
-                status = 'GPS active · accuracy ${p.accuracy.round()} m';
-              });
-              // GPS updates position only. Routes are calculated by Find route.
-            },
-            onError: (Object e) {
-              stop();
-              if (mounted) update(() => status = 'GPS unavailable: $e');
-            },
-          );
-      await widget.planner.log('gps_checked');
-    } catch (e) {
-      if (mounted) update(() => status = '$e');
+    await j.startTracking();
+    if (j.tracking) {
+      unawaited(widget.planner.log('gps_checked').catchError((Object _) {}));
     }
   }
 
   void fit(List<LatLng> points) {
+    if (GoogleMapsSetup.available) {
+      previewGoogleMap.currentState?.fitRoute();
+      expandedGoogleMap.currentState?.fitRoute();
+      return;
+    }
     if (points.length > 1) {
       final camera = CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
@@ -225,6 +352,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   }
 
   Future<void> find() async {
+    syncQuery();
     if (origin == null) {
       update(
         () => status =
@@ -253,7 +381,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
     });
     lastRoute = DateTime.now();
     try {
-      await widget.planner.log('maps_opened');
+      unawaited(widget.planner.log('maps_opened').catchError((Object _) {}));
       if (requestedMode == 'Jeepney') {
         final results = await Routing.jeepneys(from, dest);
         if (!mounted || request != serial) return;
@@ -264,29 +392,8 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
               : 'Mapped candidates found. Confirm signage and current operation before boarding.';
         });
         fit([from, dest]);
-      } else if (['Walking', 'Driving'].contains(requestedMode)) {
-        final route = await Routing.road(from, dest, requestedMode);
-        if (!mounted || request != serial) return;
-        update(() {
-          line = route.points;
-          final total = journeyEstimateMinutes(route.minutes, requestedMode);
-          travel.text = '$total';
-          status =
-              '${(route.meters / 1000).toStringAsFixed(1)} km · about $total min, including ${requestedMode.toLowerCase()} mode and local travel buffers. Route estimate, no live traffic.';
-        });
-        fit([from, dest, ...line]);
       } else {
-        final route = await Routing.transit(from, dest, requestedMode);
-        if (!mounted || request != serial) return;
-        update(() {
-          line = route.points;
-          final total = journeyEstimateMinutes(route.minutes, requestedMode);
-          travel.text = '$total';
-          status = requestedMode == 'Train'
-              ? '$requestedMode route ready · about $total min. Displayed geometry follows mapped rail lines where available; verify station access locally.'
-              : '$requestedMode estimate ready · about $total min for walking, waiting, transfers and riding. Transit timetable coverage may be unavailable, so this uses the best available route estimate.';
-        });
-        fit([from, dest, ...line]);
+        await j.refresh();
       }
     } catch (e) {
       if (mounted && request == serial) {
@@ -354,6 +461,10 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   }
 
   void chooseEndpoint(bool isOrigin, String value) {
+    if (value == 'manual') {
+      unawaited(enterOrigin());
+      return;
+    }
     if (value == 'pick') {
       update(() {
         picking = isOrigin ? 'origin' : 'destination';
@@ -364,6 +475,11 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
     if (isOrigin) {
       originOverride = value == 'gps' ? null : campusPoints[value]!;
       originName = value == 'gps' ? 'Your location' : value;
+      if (value == 'gps') {
+        j.useGpsOrigin();
+      } else {
+        j.setOrigin(originOverride!, originName, refresh: false);
+      }
     } else {
       destinationOverride = campusPoints[value]!;
       destinationName = value;
@@ -379,11 +495,22 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
     if (picking == 'origin') {
       originOverride = point;
       originName = label;
+      j.setOrigin(point, label, refresh: false);
     } else {
       destinationOverride = point;
       destinationName = label;
     }
     picking = null;
+    reset();
+  }
+
+  Future<void> enterOrigin() async {
+    final result = await showDialog<(LatLng, String)>(
+      context: context,
+      builder: (_) => _OriginDialog(initial: origin),
+    );
+    if (!mounted || result == null) return;
+    j.setOrigin(result.$1, result.$2, refresh: false);
     reset();
   }
 
@@ -416,6 +543,11 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
             child: Text(label, overflow: TextOverflow.ellipsis),
           ),
         const DropdownMenuItem(value: 'pick', child: Text('Choose on map')),
+        if (isOrigin)
+          const DropdownMenuItem(
+            value: 'manual',
+            child: Text('Enter coordinates'),
+          ),
       ],
       onChanged: (value) {
         if (value != null && value != 'custom') chooseEndpoint(isOrigin, value);
@@ -470,6 +602,11 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                                     destinationName = oldName == 'Your location'
                                         ? 'Previous location'
                                         : oldName;
+                                    j.setOrigin(
+                                      originOverride!,
+                                      originName,
+                                      refresh: false,
+                                    );
                                     picking = null;
                                     reset();
                                   },
@@ -537,8 +674,14 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                       ),
                     Positioned(
                       right: 12,
-                      bottom: 32,
+                      top: j.options.isNotEmpty || jeepneys.isNotEmpty
+                          ? 12
+                          : null,
+                      bottom: j.options.isNotEmpty || jeepneys.isNotEmpty
+                          ? null
+                          : 32,
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           FloatingActionButton.small(
                             heroTag: 'route-gps',
@@ -564,7 +707,11 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                                   ...exit,
                                 ]);
                               } else {
-                                controller.move(destination, 14);
+                                if (GoogleMapsSetup.available) {
+                                  fit([destination]);
+                                } else {
+                                  controller.move(destination, 14);
+                                }
                               }
                             },
                             child: const Icon(Icons.center_focus_strong),
@@ -572,6 +719,52 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                         ],
                       ),
                     ),
+                    if (picking == null &&
+                        (j.options.isNotEmpty || jeepneys.isNotEmpty))
+                      DraggableScrollableSheet(
+                        key: const ValueKey('journey-details-sheet'),
+                        initialChildSize: .28,
+                        minChildSize: .18,
+                        maxChildSize: .85,
+                        builder: (context, scroll) => Material(
+                          elevation: 8,
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(26),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: SingleChildScrollView(
+                            controller: scroll,
+                            padding: const EdgeInsets.all(18),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Center(
+                                  child: Container(
+                                    width: 36,
+                                    height: 4,
+                                    margin: const EdgeInsets.only(bottom: 14),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).dividerColor,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ),
+                                SectionHeading(
+                                  j.selected == null
+                                      ? 'Mapped candidates'
+                                      : '${j.selected!.minutes} min to your destination',
+                                  subtitle:
+                                      'Swipe up for route options and steps',
+                                ),
+                                const SizedBox(height: 16),
+                                ...routeCards(),
+                                ExternalDirections(journey: j),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -584,7 +777,13 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [Text(status), ...routeCards()],
+                    children: [
+                      Text(status),
+                      if (tileError)
+                        const Text(
+                          'Map tiles are unavailable. Check your connection.',
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -596,6 +795,43 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   }
 
   Widget buildMap(MapController controller, {bool preview = false}) {
+    final option = j.selected;
+    final routes = <MapRouteLine>[
+      if (option != null && option.steps.any((s) => s.points.isNotEmpty)) ...[
+        for (var i = 0; i < option.steps.length; i++)
+          if (option.steps[i].points.isNotEmpty)
+            MapRouteLine(
+              option.steps[i].points,
+              option.steps[i].walking
+                  ? Colors.grey
+                  : i.isEven
+                  ? Theme.of(context).colorScheme.primary
+                  : const Color(0xff365cb5),
+              walking: option.steps[i].walking,
+            ),
+      ] else if (line.isNotEmpty)
+        MapRouteLine(line, Theme.of(context).colorScheme.primary),
+      for (final leg in [access, exit])
+        if (leg.isNotEmpty) MapRouteLine(leg, Colors.orange, walking: true),
+    ];
+    if (GoogleMapsSetup.available) {
+      return GoogleJourneyMap(
+        key: preview ? previewGoogleMap : expandedGoogleMap,
+        origin: origin,
+        destination: destination,
+        originLabel: originName,
+        destinationLabel: destinationLabel,
+        lines: routes,
+        bottomOverlayFraction:
+            !preview &&
+                picking == null &&
+                (j.options.isNotEmpty || jeepneys.isNotEmpty)
+            ? .28
+            : 0,
+        onTap: preview ? null : pickPoint,
+      );
+    }
+    final googleContent = option?.source == JourneySource.google;
     return FlutterMap(
       key: ValueKey(preview ? 'commute-map' : 'expanded-route-map'),
       mapController: controller,
@@ -608,18 +844,23 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.tamarawtime.app',
+          errorTileCallback: (_, error, trace) {
+            if (!mounted || tileError) return;
+            tileError = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) update(() {});
+            });
+          },
         ),
         PolylineLayer(
           polylines: [
-            if (line.isNotEmpty)
-              Polyline(
-                points: line,
-                color: Theme.of(context).colorScheme.primary,
-                strokeWidth: 5,
-              ),
-            for (final leg in [access, exit])
-              if (leg.isNotEmpty)
-                Polyline(points: leg, color: Colors.orange, strokeWidth: 4),
+            if (!googleContent)
+              for (final route in routes)
+                Polyline(
+                  points: route.points,
+                  color: route.color,
+                  strokeWidth: route.walking ? 4 : 6,
+                ),
           ],
         ),
         MarkerLayer(
@@ -642,7 +883,7 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
                   message: 'Origin: $originName',
                   child: const Icon(
                     Icons.trip_origin,
-                    color: Colors.blue,
+                    color: Colors.green,
                     size: 30,
                   ),
                 ),
@@ -664,7 +905,9 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
           ],
         ),
         Align(
-          alignment: Alignment.bottomLeft,
+          alignment: !preview && picking == null
+              ? Alignment.topLeft
+              : Alignment.bottomLeft,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             color: Theme.of(context).colorScheme.surface,
@@ -674,11 +917,33 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
             ),
           ),
         ),
+        if (googleContent)
+          Align(
+            alignment: Alignment.topCenter,
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              color: Theme.of(context).colorScheme.surface,
+              child: const Text(
+                'Google Routes itinerary ready. Configure Google Maps to display its route.',
+              ),
+            ),
+          ),
       ],
     );
   }
 
   List<Widget> routeCards() => [
+    if (mode != 'Jeepney' && j.options.isNotEmpty) ...[
+      JourneyOptions(journey: j),
+      if (j.selected != null) JourneyTimeline(option: j.selected!),
+    ],
+    if (mode == 'Jeepney')
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'Mapped jeepney routes · current operation unverified. Confirm signage and boarding points locally. No live ETA or fare is supplied.',
+        ),
+      ),
     for (final route in jeepneys)
       Card(
         child: ListTile(
@@ -704,27 +969,39 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final c = chosen;
-    final journey = int.tryParse(travel.text) ?? 55;
+    final valid = j.matches(destination, mode);
+    final journey = valid
+        ? j.selected!.minutes
+        : int.tryParse(travel.text) ?? 55;
     final preparation = int.tryParse(prep.text) ?? 45;
     final margin = int.tryParse(buffer.text) ?? 15;
     final when = c == null ? null : nextOccurrence(c, manilaNow());
     final leave = when?.subtract(Duration(minutes: journey + margin));
-    Widget number(TextEditingController controller, String label, int min) =>
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: TextFormField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(labelText: label),
-            validator: (v) {
-              final n = int.tryParse(v ?? '');
-              return n == null || n < min || n > 480
-                  ? 'Enter $min–480 minutes'
-                  : null;
-            },
-            onChanged: (_) => setState(() {}),
-          ),
-        );
+    Widget number(
+      TextEditingController controller,
+      String label,
+      int min, {
+      bool readOnly = false,
+    }) => Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: TextFormField(
+        controller: controller,
+        readOnly: readOnly,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label),
+        validator: (v) {
+          final value = int.tryParse(v ?? '');
+          final max = controller == travel ? 2880 : 480;
+          return value == null || value < min || value > max
+              ? 'Enter $min–$max minutes'
+              : null;
+        },
+        onChanged: (_) {
+          update(() {});
+          if (controller == buffer) syncQuery(refresh: true);
+        },
+      ),
+    );
     return Form(
       key: form,
       child: Column(
@@ -732,130 +1009,245 @@ class _CommuteState extends State<Commute> with WidgetsBindingObserver {
         children: [
           Text(
             'Commute Planner',
-            style: Theme.of(context).textTheme.headlineMedium,
+            style: Theme.of(context).textTheme.headlineLarge,
           ),
-          const SizedBox(height: 20),
-          if (c != null)
-            DropdownButtonFormField<String>(
-              initialValue: c['id'],
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Choose a class'),
-              items: widget.planner.upcoming
-                  .map(
-                    (c) => DropdownMenuItem<String>(
-                      value: c['id'],
-                      child: Text(
-                        '${c['name']} · ${days[c['day']]}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) {
-                classId = v;
-                destinationOverride = null;
-                destinationName = null;
-                reset();
-              },
-            ),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            key: ValueKey('commute-mode-$mode'),
-            initialValue: mode,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Travel mode'),
-            items: modes
-                .map(
-                  (m) => DropdownMenuItem(
-                    value: m,
-                    child: Text(m, overflow: TextOverflow.ellipsis),
-                  ),
-                )
-                .toList(),
-            onChanged: (v) {
-              mode = v!;
-              reset();
-            },
-          ),
-          const SizedBox(height: 16),
-          number(travel, 'Total journey minutes', 1),
-          number(prep, 'Preparation minutes', 0),
-          number(buffer, 'Arrival buffer minutes', 0),
-          if (leave != null)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Your recommended routine',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                RoutineResults(
-                  ready: clock(leave.subtract(Duration(minutes: preparation))),
-                  leave: clock(leave),
-                  arrive: clock(when!.subtract(Duration(minutes: margin))),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          FilledButton(
-            onPressed: () async {
-              if (form.currentState!.validate()) {
-                widget.planner.settings.addAll({
-                  'travel': journey,
-                  'prep': preparation,
-                  'buffer': margin,
-                  'mode': mode,
-                  'travelMode': mode,
-                });
-                await widget.onSave();
-              }
-            },
-            child: const Text('Save as default commute'),
+          const SizedBox(height: 6),
+          Text(
+            'Your campus, without the guesswork.',
+            style: TextStyle(color: TamarawPalette.of(context).muted),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Live GPS & commute routes',
-            style: Theme.of(context).textTheme.titleLarge,
+          MobilityCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (c != null) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: c['id'],
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Choose a class',
+                    ),
+                    items: widget.planner.upcoming
+                        .map(
+                          (entry) => DropdownMenuItem<String>(
+                            value: entry['id'],
+                            child: Text(
+                              entry['name'],
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      classId = value;
+                      destinationOverride = null;
+                      destinationName = null;
+                      reset();
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                DropdownButtonFormField<String>(
+                  key: ValueKey('commute-mode-$mode'),
+                  initialValue: mode,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Travel mode'),
+                  items: modes
+                      .map(
+                        (m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(m, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    mode = value!;
+                    reset();
+                  },
+                ),
+                const SizedBox(height: 20),
+                if (mode == 'Bus / UV')
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Bus preference. UV Express coverage is not guaranteed; check the returned services.',
+                    ),
+                  ),
+                if (mode == 'Train')
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Rail preference. A provider may return other modes; check the itinerary steps.',
+                    ),
+                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(
+                        Icons.trip_origin,
+                        color: Colors.green,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        origin == null
+                            ? 'Choose your starting point'
+                            : originName,
+                      ),
+                    ),
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(left: 7),
+                  child: Text('⋮'),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on, color: Colors.red, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        destinationLabel,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: openRouteMap,
+                      icon: const Icon(Icons.route),
+                      label: const Text('Find route'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: tracking || j.locating ? null : start,
+                      icon: const Icon(Icons.my_location),
+                      label: Text(j.locating ? 'Locating…' : 'Start GPS'),
+                    ),
+                    if (tracking || j.locating)
+                      OutlinedButton(
+                        onPressed: stop,
+                        child: const Text('Stop tracking'),
+                      ),
+                    if (j.permissionDenied)
+                      TextButton(
+                        onPressed: Geolocator.openAppSettings,
+                        child: const Text('Location settings'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Starting GPS shares coordinates with routing providers for walking/driving estimates. Find route shares coordinates with map services for jeepney discovery. GPS is kept in memory only.',
+          if (busy || j.locating)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: LinearProgressIndicator(),
+            ),
+          Semantics(
+            liveRegion: true,
+            child: Text(status, style: Theme.of(context).textTheme.bodySmall),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: tracking ? null : start,
-                icon: const Icon(Icons.my_location),
-                label: const Text('Start GPS'),
-              ),
-              OutlinedButton(
-                onPressed: tracking ? stop : null,
-                child: const Text('Stop tracking'),
-              ),
-              OutlinedButton(
-                onPressed: openRouteMap,
-                child: const Text('Find route'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (busy) const LinearProgressIndicator(),
-          Text(status),
+          if (tileError)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Map tiles are unavailable. Check your connection.'),
+            ),
           const SizedBox(height: 12),
           SizedBox(
             height: 360,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: buildMap(map, preview: true),
+              borderRadius: BorderRadius.circular(22),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: buildMap(map, preview: true)),
+                  Positioned(
+                    right: 12,
+                    bottom: 28,
+                    child: FloatingActionButton.small(
+                      heroTag: 'preview-expand',
+                      tooltip: 'Expand map',
+                      onPressed: openRouteMap,
+                      child: const Icon(Icons.fullscreen),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+          const SizedBox(height: 20),
           ...routeCards(),
+          ExternalDirections(journey: j),
+          const SizedBox(height: 20),
+          Card(
+            child: ExpansionTile(
+              title: const Text('Timing preferences'),
+              subtitle: Text(
+                valid
+                    ? 'Journey duration supplied automatically'
+                    : 'Optional manual fallback and arrival buffer',
+              ),
+              childrenPadding: const EdgeInsets.all(16),
+              children: [
+                number(
+                  travel,
+                  valid ? 'Provider journey minutes' : 'Manual journey minutes',
+                  1,
+                  readOnly: valid,
+                ),
+                if (!valid)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      'Manual minutes are a personal planning fallback, not a live travel estimate.',
+                    ),
+                  ),
+                number(prep, 'Preparation minutes', 0),
+                number(buffer, 'Arrival buffer minutes', 0),
+                if (leave != null &&
+                    (valid ||
+                        widget.planner.settings['useManualEstimate'] ==
+                            true)) ...[
+                  RoutineResults(
+                    ready: clock(
+                      leave.subtract(Duration(minutes: preparation)),
+                    ),
+                    leave: clock(leave),
+                    arrive: clock(when!.subtract(Duration(minutes: margin))),
+                  ),
+                  if (!valid) const Text('Manual plan · ETA unavailable'),
+                ],
+                FilledButton(
+                  onPressed: () async {
+                    if (!form.currentState!.validate()) return;
+                    widget.planner.settings.addAll({
+                      'travel': journey,
+                      'prep': preparation,
+                      'buffer': margin,
+                      'mode': mode,
+                      'travelMode': mode,
+                      'useManualEstimate': !valid,
+                    });
+                    await widget.onSave();
+                  },
+                  child: const Text('Save as default commute'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           const Text(
-            'Walking, driving and public-transit directions use routing services. Jeepney routes use mapped OpenStreetMap services and must be checked locally. Route times are estimates and may change.',
+            'GPS runs only in the foreground after permission. Coordinates are used for routes and kept in memory, never stored as location history or sent to the research database. Route estimates depend on provider coverage.',
           ),
         ],
       ),

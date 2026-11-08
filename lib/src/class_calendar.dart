@@ -101,13 +101,20 @@ class _ClassCalendarState extends State<ClassCalendar> {
       ),
     );
     final schedule = Column(
-      key: const ValueKey('selected-day-schedule'),
+      key: ValueKey(
+        'selected-day-${widget.selected.year}-${widget.selected.month}-${widget.selected.day}',
+      ),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
           '${days[widget.selected.weekday % 7]}, '
           '${widget.selected.month}/${widget.selected.day}/${widget.selected.year}',
           style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '${selectedClasses.length} ${selectedClasses.length == 1 ? 'class' : 'classes'} planned',
+          style: TextStyle(color: colors.primary, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         const Text('Classes repeat every week on their selected days.'),
@@ -128,6 +135,10 @@ class _ClassCalendarState extends State<ClassCalendar> {
         ),
       ],
     );
+    final selectedSchedule = AnimatedSwitcher(
+      duration: reduced ? Duration.zero : const Duration(milliseconds: 180),
+      child: schedule,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -145,12 +156,16 @@ class _ClassCalendarState extends State<ClassCalendar> {
                   children: [
                     Expanded(child: calendar),
                     const SizedBox(width: 20),
-                    Expanded(child: schedule),
+                    Expanded(child: selectedSchedule),
                   ],
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [calendar, const SizedBox(height: 20), schedule],
+                  children: [
+                    calendar,
+                    const SizedBox(height: 20),
+                    selectedSchedule,
+                  ],
                 ),
         ),
       ],

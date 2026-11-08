@@ -1,4 +1,11 @@
 # Miscellaneous
+.env
+.env.*
+!.env.example
+supabase/functions/.env.*
+!supabase/functions/.env.example
+ios/Flutter/Secrets.xcconfig
+**/maps.properties
 *.class
 *.log
 *.pyc

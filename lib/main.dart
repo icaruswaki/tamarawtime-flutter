@@ -12,7 +12,10 @@ import 'src/theme.dart';
 import 'src/account.dart';
 import 'src/account_widgets.dart';
 import 'src/class_calendar.dart';
-import 'src/responsive.dart';
+import 'src/google_journey_map.dart';
+import 'src/punctuality_overview.dart';
+import 'src/journey_widgets.dart';
+import 'src/routing.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +44,7 @@ Future<void> main() async {
   );
 
   final cloud = Supabase.instance.client;
+  await GoogleMapsSetup.initialize();
   final account = AccountAuth(cloud, storage: storage);
   await account.initializeLinks();
   runApp(TamarawTimeApp(planner: Planner(cloud), account: account));
@@ -114,6 +118,7 @@ class _EntryState extends State<Entry> {
         !widget.planner.local &&
         activeUserId != account.client.auth.currentUser?.id) {
       setState(() => ready = false);
+      widget.planner.journey.clear();
     }
     if (account.recovering || account.handlingLink) {
       setState(() => ready = false);
@@ -451,16 +456,25 @@ class Dashboard extends StatefulWidget {
 class _DashboardState extends State<Dashboard> {
   int page = 0;
   int? tutorialIndex;
+  bool journeySyncPending = false;
   DateTime selectedDate = manilaNow();
   Timer? timer;
   Planner get p => widget.planner;
   @override
   void initState() {
     super.initState();
+    p.journey.bindLifecycle();
+    p.addListener(plannerChanged);
     timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        if (page == 0) syncJourney();
+        setState(() {});
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      syncJourney();
+      if (p.upcoming.isNotEmpty) unawaited(p.journey.restoreGrantedLocation());
       if (p.payload['onboarding']?['finished'] != true) {
         setState(() => tutorialIndex = 0);
       }
@@ -470,7 +484,43 @@ class _DashboardState extends State<Dashboard> {
   @override
   void dispose() {
     timer?.cancel();
+    p.removeListener(plannerChanged);
+    p.journey.unbindLifecycle();
     super.dispose();
+  }
+
+  void syncJourney() {
+    final classes = p.upcoming;
+    if (classes.isEmpty) return;
+    final next = classes.first;
+    final arriveBy = nextOccurrence(next, manilaNow()).subtract(
+      Duration(hours: 8, minutes: (p.settings['buffer'] as num).toInt()),
+    );
+    p.journey.configure(
+      destination: campusPoints[next['campus']]!,
+      label: next['campus'],
+      mode: p.settings['mode'],
+      arriveBy: arriveBy.isAfter(DateTime.now()) ? arriveBy : null,
+    );
+  }
+
+  void plannerChanged() {
+    if (!mounted || page != 0 || journeySyncPending) return;
+    journeySyncPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      journeySyncPending = false;
+      if (mounted && page == 0) syncJourney();
+    });
+  }
+
+  void switchPage(int index) {
+    p.journey.setActive(index == 0 || index == 2);
+    setState(() {
+      page = index;
+      if (tutorialIndex == 0 && index == 1) tutorialIndex = 1;
+      if (tutorialIndex == 2 && index == 3) tutorialIndex = 3;
+    });
+    if (index == 0) syncJourney();
   }
 
   Future<void> persist([String? event, bool notify = true]) async {
@@ -746,187 +796,24 @@ class _DashboardState extends State<Dashboard> {
     ),
   );
   Widget home() {
-    final colors = TamarawPalette.of(context);
     final upcoming = p.upcoming;
-    final next = upcoming.isEmpty ? null : upcoming.first;
-    final travel = (p.settings['travel'] as num).toInt();
-    final when = next == null ? null : nextOccurrence(next, manilaNow());
-    final leave = when?.subtract(
-      Duration(minutes: travel + (p.settings['buffer'] as num).toInt()),
-    );
-    final ready = leave?.subtract(
-      Duration(minutes: (p.settings['prep'] as num).toInt()),
-    );
-    final tiles = [
-      StatTile(
-        label: 'NEXT CLASS',
-        value: next?['name'] ?? 'No classes yet',
-        note: next == null
-            ? 'Add your first class to begin'
-            : '${days[next['day']]} · ${next['time']}',
-        accent: true,
-      ),
-      StatTile(
-        label: 'SUGGESTED LEAVE TIME',
-        value: leave == null ? '—' : clock(leave),
-        note: 'Class start, journey and arrival buffer',
-      ),
-      StatTile(
-        label: 'TRAVEL ESTIMATE',
-        value: '$travel min',
-        note: 'Default estimate · ${p.settings['mode']}',
-      ),
-    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'YOUR PERSONAL CAMPUS COMPANION',
-          style: Theme.of(context).textTheme.labelSmall,
-        ),
-        const SizedBox(height: 7),
-        Text(
-          'Good day, ${p.settings['name']}!',
-          style: Theme.of(context).textTheme.headlineLarge,
-        ),
-        Text(
-          'Focus on arriving to class on time.',
-          style: TextStyle(color: colors.muted),
-        ),
-        const SizedBox(height: 28),
-        LayoutBuilder(
-          builder: (context, box) =>
-              AppLayout.columns(
-                box.maxWidth,
-                textScale: AppLayout.textScale(context),
-              )
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (int i = 0; i < tiles.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 19),
-                      Expanded(child: tiles[i]),
-                    ],
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final tile in tiles)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: tile,
-                      ),
-                  ],
-                ),
-        ),
+        PunctualityOverview(planner: p, onCommute: () => switchPage(2)),
         const SizedBox(height: 24),
-        Text(
-          'Plan for punctuality',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(30),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [colors.heroStart, colors.heroFinish],
-            ),
-          ),
-          child: DefaultTextStyle(
-            style: Theme.of(context).textTheme.bodyMedium!
-                .copyWith(color: Colors.white, fontSize: 14, height: 1.5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  next == null
-                      ? 'YOUR PUNCTUALITY ASSISTANT'
-                      : 'UPCOMING CLASS · ${days[next['day']].toUpperCase()}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
-                    color: Color(0xffc4decd),
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  leave == null
-                      ? 'Add your schedule to start'
-                      : 'Leave by ${clock(leave)}',
-                  style: const TextStyle(
-                    fontSize: 29,
-                    height: 1.2,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  ready == null
-                      ? 'Get a personalized departure recommendation'
-                      : 'Prepare by ${clock(ready)} · Aim to arrive ${clock(when!.subtract(Duration(minutes: (p.settings['buffer'] as num).toInt())))}',
-                  style: const TextStyle(color: Color(0xffc4decd)),
-                ),
-                if (leave != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      leave.difference(manilaNow()).inMinutes < 0
-                          ? 'Recommended departure has passed'
-                          : 'Leave in ${leave.difference(manilaNow()).inHours} hr ${leave.difference(manilaNow()).inMinutes % 60} min',
-                      style: TextStyle(
-                        color: colors.yellow,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: () => setState(() => page = 2),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: colors.yellow,
-                    foregroundColor: colors.onAccent,
-                  ),
-                  icon: const Icon(Icons.route),
-                  label: const Text('Plan my commute'),
-                ),
-              ],
-            ),
+        SectionHeading(
+          'Upcoming classes',
+          trailing: TextButton(
+            onPressed: () => switchPage(1),
+            child: const Text('View schedule →'),
           ),
         ),
-        const SizedBox(height: 24),
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 12,
-          children: [
-            Text(
-              'Upcoming classes',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            TextButton(
-              onPressed: () => setState(() => page = 1),
-              child: const Text('View schedule →'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (next == null)
-          Container(
-            padding: const EdgeInsets.all(26),
-            decoration: BoxDecoration(
-              color: colors.soft,
-              borderRadius: BorderRadius.circular(12),
-            ),
+        const SizedBox(height: 16),
+        if (upcoming.isEmpty)
+          const MobilityCard(
             child: Text(
               'Your class list is empty. Tap + to add your first class.',
-              style: TextStyle(color: colors.muted),
-              textAlign: TextAlign.center,
             ),
           ),
         ...upcoming.take(4).map(classTile),
@@ -978,7 +865,17 @@ class _DashboardState extends State<Dashboard> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(step.$1, size: 34, color: Theme.of(context).colorScheme.primary),
+          Column(
+            children: [
+              const TamarawLogo(size: 36),
+              const SizedBox(height: 8),
+              Icon(
+                step.$1,
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -1040,11 +937,7 @@ class _DashboardState extends State<Dashboard> {
     builder: (context, _) => PlannerShell(
       page: page,
       local: p.local,
-      onPage: (i) => setState(() {
-        page = i;
-        if (tutorialIndex == 0 && i == 1) tutorialIndex = 1;
-        if (tutorialIndex == 2 && i == 3) tutorialIndex = 3;
-      }),
+      onPage: switchPage,
       onExit: widget.onExit,
       floatingActionButton: page < 2
           ? FloatingActionButton(
@@ -1070,10 +963,7 @@ class _DashboardState extends State<Dashboard> {
                   color: TamarawPalette.of(context).soft,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  '${days[manilaNow().weekday % 7]}, ${manilaNow().month}/${manilaNow().day}/${manilaNow().year} · ${clock(manilaNow())} PHT',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                child: const LivePlannerClock(),
               ),
               Text(
                 p.local
@@ -1159,6 +1049,8 @@ class _PreferencesState extends State<Preferences> {
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 20),
+        const Brand(),
+        const SizedBox(height: 20),
         Text('Account Security', style: Theme.of(context).textTheme.titleLarge),
         if (widget.planner.local || widget.account == null)
           const Padding(
@@ -1234,20 +1126,31 @@ class _PreferencesState extends State<Preferences> {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 labelText: {
-                  'travel': 'Journey minutes',
+                  'travel': 'Manual journey minutes',
                   'prep': 'Preparation minutes',
                   'buffer': 'Arrival buffer minutes',
                 }[key],
               ),
               validator: (v) {
                 final n = int.tryParse(v ?? '');
-                return n == null || n < (key == 'travel' ? 1 : 0) || n > 480
-                    ? 'Enter ${key == 'travel' ? 1 : 0}–480 minutes'
+                final max = key == 'travel' ? 2880 : 480;
+                return n == null || n < (key == 'travel' ? 1 : 0) || n > max
+                    ? 'Enter ${key == 'travel' ? 1 : 0}–$max minutes'
                     : null;
               },
               onSaved: (v) => draft[key] = int.parse(v!),
             ),
           ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: draft['useManualEstimate'] == true,
+          title: const Text('Use a manual fallback'),
+          subtitle: const Text(
+            'Show your manual plan when a fresh route estimate is unavailable.',
+          ),
+          onChanged: (value) =>
+              setState(() => draft['useManualEstimate'] = value),
+        ),
         FilledButton(
           onPressed: () async {
             if (form.currentState!.validate()) {
@@ -1352,7 +1255,7 @@ class _PreferencesState extends State<Preferences> {
         ),
         const SizedBox(height: 16),
         const Text(
-          'GPS runs only while the commute screen is open. Coordinates are sent to map and routing services to plan a journey, and are never stored in the student database. Route times are estimates without live traffic.',
+          'GPS runs on Home or Commute in the foreground after permission, and stops when disabled or the app is backgrounded. Coordinates are shared with routing providers to plan a journey, never saved as location history or research data. Traffic and timetable coverage depend on the provider.',
         ),
       ],
     ),

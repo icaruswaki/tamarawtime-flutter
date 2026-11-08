@@ -43,18 +43,18 @@ class TamarawPalette {
   static const themes = <String, TamarawPalette>{
     'forest': TamarawPalette(
       name: 'FEU Forest',
-      forest: Color(0xff0f3027),
-      green: Color(0xff55be8c),
+      forest: Color(0xff17643d),
+      green: Color(0xffc5e8d2),
       yellow: Color(0xffe9c95e),
-      paper: Color(0xfff7f5ee),
-      muted: Color(0xff718078),
-      border: Color(0xffe3e4d9),
+      paper: Color(0xfff5f7f5),
+      muted: Color(0xff596d61),
+      border: Color(0xffe1e8e2),
       heroEnd: Color(0xff245c46),
       surface: Colors.white,
-      soft: Color(0xffedf4eb),
+      soft: Color(0xffeaf4ed),
       highlight: Color(0xfff8efd4),
       link: Color(0xff246d50),
-      ink: Color(0xff0f3027),
+      ink: Color(0xff172b20),
     ),
     'ocean': TamarawPalette(
       name: 'Coastal Blue',
@@ -114,8 +114,30 @@ class TamarawStyle extends ThemeExtension<TamarawStyle> {
   TamarawStyle copyWith({TamarawPalette? palette}) =>
       TamarawStyle(palette ?? this.palette);
   @override
-  TamarawStyle lerp(covariant TamarawStyle? other, double t) =>
-      t < .5 ? this : other ?? this;
+  TamarawStyle lerp(covariant TamarawStyle? other, double t) => other == null
+      ? this
+      : TamarawStyle(
+          TamarawPalette(
+            name: t < .5 ? palette.name : other.palette.name,
+            dark: t < .5 ? palette.dark : other.palette.dark,
+            forest: Color.lerp(palette.forest, other.palette.forest, t)!,
+            green: Color.lerp(palette.green, other.palette.green, t)!,
+            yellow: Color.lerp(palette.yellow, other.palette.yellow, t)!,
+            paper: Color.lerp(palette.paper, other.palette.paper, t)!,
+            muted: Color.lerp(palette.muted, other.palette.muted, t)!,
+            border: Color.lerp(palette.border, other.palette.border, t)!,
+            heroEnd: Color.lerp(palette.heroEnd, other.palette.heroEnd, t)!,
+            surface: Color.lerp(palette.surface, other.palette.surface, t)!,
+            soft: Color.lerp(palette.soft, other.palette.soft, t)!,
+            highlight: Color.lerp(
+              palette.highlight,
+              other.palette.highlight,
+              t,
+            )!,
+            link: Color.lerp(palette.link, other.palette.link, t)!,
+            ink: Color.lerp(palette.ink, other.palette.ink, t)!,
+          ),
+        );
 }
 
 ThemeData tamarawTheme(String name) {
@@ -128,7 +150,7 @@ ThemeData tamarawTheme(String name) {
       .apply(bodyColor: p.ink, displayColor: p.ink)
       .copyWith(
         headlineLarge: TextStyle(
-          fontSize: 36,
+          fontSize: 32,
           fontWeight: FontWeight.w800,
           letterSpacing: -1,
           color: p.ink,
@@ -162,7 +184,7 @@ ThemeData tamarawTheme(String name) {
         ),
       )
       .apply(fontFamily: base.textTheme.bodyMedium?.fontFamily);
-  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(11));
+  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
   final border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(10),
     borderSide: BorderSide(color: p.border),
@@ -192,11 +214,11 @@ ThemeData tamarawTheme(String name) {
       color: p.surface,
       surfaceTintColor: Colors.transparent,
       shadowColor: const Color(0x14143525),
-      elevation: 1,
-      margin: const EdgeInsets.only(bottom: 19),
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 16),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(19),
+        borderRadius: BorderRadius.circular(22),
         side: BorderSide(color: p.border),
       ),
     ),
@@ -259,6 +281,14 @@ ThemeData tamarawTheme(String name) {
       foregroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
+    chipTheme: ChipThemeData(
+      backgroundColor: p.surface,
+      selectedColor: p.soft,
+      labelStyle: text.bodySmall?.copyWith(color: p.ink),
+      side: BorderSide(color: p.border),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+    ),
     dialogTheme: DialogThemeData(
       backgroundColor: p.surface,
       surfaceTintColor: Colors.transparent,
@@ -279,24 +309,20 @@ ThemeData tamarawTheme(String name) {
       subtitleTextStyle: text.bodySmall,
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: p.sidebar,
-      indicatorColor: p.green,
+      backgroundColor: p.surface,
+      indicatorColor: p.soft,
       elevation: 0,
       height: 72,
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: states.contains(WidgetState.selected)
-              ? p.green
-              : const Color(0xffc6d7ce),
+          color: states.contains(WidgetState.selected) ? p.link : p.muted,
         ),
       ),
       iconTheme: WidgetStateProperty.resolveWith(
         (states) => IconThemeData(
-          color: states.contains(WidgetState.selected)
-              ? p.onAccent
-              : const Color(0xffc6d7ce),
+          color: states.contains(WidgetState.selected) ? p.link : p.muted,
         ),
       ),
     ),
@@ -305,6 +331,26 @@ ThemeData tamarawTheme(String name) {
         color: p.sidebar,
         borderRadius: BorderRadius.circular(8),
       ),
+    ),
+  );
+}
+
+class TamarawLogo extends StatelessWidget {
+  const TamarawLogo({super.key, this.size = 44});
+  final double size;
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    padding: const EdgeInsets.all(3),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Image.asset(
+      'assets/images/tamaraw-logo.png',
+      fit: BoxFit.contain,
+      semanticLabel: 'Tamaraw Time logo',
     ),
   );
 }
@@ -318,16 +364,7 @@ class Brand extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 43,
-          height: 43,
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: p.yellow,
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Image.asset('assets/images/tamaraw-logo.png'),
-        ),
+        TamarawLogo(size: compact ? 40 : 52),
         const SizedBox(width: 11),
         Flexible(
           child: Column(
@@ -337,19 +374,19 @@ class Brand extends StatelessWidget {
                 TextSpan(
                   children: [
                     TextSpan(
-                      text: 'TAMARAW',
+                      text: 'Tamaraw',
                       style: TextStyle(color: inverse ? Colors.white : p.ink),
                     ),
                     TextSpan(
-                      text: ' TIME',
+                      text: ' Time',
                       style: TextStyle(color: inverse ? p.yellow : p.link),
                     ),
                   ],
                 ),
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
+                  letterSpacing: -.5,
                 ),
               ),
               if (!compact)
@@ -407,6 +444,7 @@ class PlannerShell extends StatelessWidget {
       appBar: wide
           ? null
           : AppBar(
+              toolbarHeight: 56 * AppLayout.textScale(context),
               title: const Brand(compact: true),
               actions: [
                 IconButton(
@@ -466,7 +504,7 @@ class PlannerShell extends StatelessWidget {
             if (wide)
               Container(
                 width: 250,
-                color: p.sidebar,
+                color: p.surface,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 17,
                   vertical: 26,
@@ -475,7 +513,7 @@ class PlannerShell extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Brand(inverse: true),
+                      const Brand(),
                       const SizedBox(height: 35),
                       for (int i = 0; i < 4; i++)
                         Padding(
@@ -485,11 +523,9 @@ class PlannerShell extends StatelessWidget {
                             style: TextButton.styleFrom(
                               alignment: Alignment.centerLeft,
                               backgroundColor: page == i
-                                  ? p.green
+                                  ? p.soft
                                   : Colors.transparent,
-                              foregroundColor: page == i
-                                  ? p.onAccent
-                                  : const Color(0xffc6d7ce),
+                              foregroundColor: page == i ? p.link : p.muted,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 17,
                                 vertical: 17,
@@ -508,21 +544,18 @@ class PlannerShell extends StatelessWidget {
                       const SizedBox(height: 48),
                       Text(
                         'Plan smarter. Arrive earlier.',
-                        style: TextStyle(color: p.yellow, fontSize: 13),
+                        style: TextStyle(color: p.link, fontSize: 13),
                       ),
                       const SizedBox(height: 5),
-                      const Text(
+                      Text(
                         'Built for FEU students',
-                        style: TextStyle(
-                          color: Color(0xffbcd1c4),
-                          fontSize: 11,
-                        ),
+                        style: TextStyle(color: p.muted, fontSize: 11),
                       ),
                       const SizedBox(height: 12),
                       TextButton.icon(
                         onPressed: onExit,
                         style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xffc6d7ce),
+                          foregroundColor: p.muted,
                           alignment: Alignment.centerLeft,
                         ),
                         icon: const Icon(Icons.logout, size: 18),
@@ -570,14 +603,7 @@ class AuthSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = TamarawPalette.of(context);
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [p.heroEnd, p.dark ? p.sidebar : p.forest, p.paper, p.paper],
-          stops: const [0, .63, .631, 1],
-        ),
-      ),
+      color: p.paper,
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -592,9 +618,9 @@ class AuthSurface extends StatelessWidget {
                 borderRadius: BorderRadius.circular(23),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x3d09271f),
-                    blurRadius: 70,
-                    offset: Offset(0, 24),
+                    color: Color(0x0d09271f),
+                    blurRadius: 32,
+                    offset: Offset(0, 12),
                   ),
                 ],
               ),

@@ -101,161 +101,7 @@ class Routing {
     return value;
   }
 
-  static Future<RoutePlan?> railways(LatLng from, LatLng to) async {
-    final midpoint = LatLng(
-      (from.latitude + to.latitude) / 2,
-      (from.longitude + to.longitude) / 2,
-    );
-    final query =
-        '[out:json][timeout:12];way(around:12000,${midpoint.latitude},${midpoint.longitude})["railway"~"^(rail|light_rail|subway)\$"];out geom;';
-
-    Future<dynamic> fetch(String host) async {
-      try {
-        final response = await http
-            .post(
-              Uri.https(host, '/api/interpreter'),
-              headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json',
-                'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
-              },
-              body: {'data': query},
-            )
-            .timeout(const Duration(seconds: 8));
-        if (response.statusCode != 200) return null;
-        return jsonDecode(response.body);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    dynamic data;
-    for (final result in await Future.wait([
-      fetch('overpass-api.de'),
-      fetch('overpass.kumi.systems'),
-    ])) {
-      if (result != null) {
-        data = result;
-        break;
-      }
-    }
-    if (data == null) return null;
-
-    final elements = data['elements'] as List? ?? [];
-    const distance = Distance();
-    final nodes = <LatLng>[];
-    final nodeIndex = <String, int>{};
-    final adjacency = <List<int>>[];
-
-    int indexFor(LatLng point) {
-      final key =
-          '${point.latitude.toStringAsFixed(5)},${point.longitude.toStringAsFixed(5)}';
-      final existing = nodeIndex[key];
-      if (existing != null) return existing;
-      final index = nodes.length;
-      nodeIndex[key] = index;
-      nodes.add(point);
-      adjacency.add(<int>[]);
-      return index;
-    }
-
-    for (final element in elements) {
-      final geometry = (element['geometry'] as List?) ?? const [];
-      final points = geometry
-          .map(
-            (node) => LatLng(
-              (node['lat'] as num).toDouble(),
-              (node['lon'] as num).toDouble(),
-            ),
-          )
-          .toList();
-      if (points.length < 2) continue;
-      for (var i = 0; i < points.length; i++) {
-        final current = indexFor(points[i]);
-        if (i == 0) continue;
-        final previous = indexFor(points[i - 1]);
-        if (!adjacency[current].contains(previous)) {
-          adjacency[current].add(previous);
-        }
-        if (!adjacency[previous].contains(current)) {
-          adjacency[previous].add(current);
-        }
-      }
-    }
-    if (nodes.isEmpty) return null;
-
-    int nearest(LatLng point) {
-      var nearestIndex = 0;
-      var nearestMeters = double.infinity;
-      for (var i = 0; i < nodes.length; i++) {
-        final meters = distance(point, nodes[i]);
-        if (meters < nearestMeters) {
-          nearestMeters = meters;
-          nearestIndex = i;
-        }
-      }
-      return nearestIndex;
-    }
-
-    final start = nearest(from), target = nearest(to);
-    if (distance(from, nodes[start]) > 15000 ||
-        distance(to, nodes[target]) > 15000) {
-      return null;
-    }
-
-    final costs = List<double>.filled(nodes.length, double.infinity);
-    final previous = List<int>.filled(nodes.length, -1);
-    final visited = List<bool>.filled(nodes.length, false);
-    costs[start] = 0;
-    for (var count = 0; count < nodes.length; count++) {
-      var current = -1;
-      var currentCost = double.infinity;
-      for (var i = 0; i < nodes.length; i++) {
-        if (!visited[i] && costs[i] < currentCost) {
-          current = i;
-          currentCost = costs[i];
-        }
-      }
-      if (current < 0 || current == target) break;
-      visited[current] = true;
-      for (final next in adjacency[current]) {
-        final candidate = currentCost + distance(nodes[current], nodes[next]);
-        if (candidate < costs[next]) {
-          costs[next] = candidate;
-          previous[next] = current;
-        }
-      }
-    }
-    if (previous[target] < 0 && start != target) return null;
-
-    final pathIndexes = <int>[];
-    for (var current = target; current >= 0; current = previous[current]) {
-      pathIndexes.add(current);
-      if (current == start) break;
-    }
-    if (pathIndexes.last != start) return null;
-    final orderedIndexes = pathIndexes.reversed.toList();
-
-    var railMeters = 0.0;
-    final railPoints = <LatLng>[];
-    for (final index in orderedIndexes) {
-      if (railPoints.isNotEmpty) {
-        railMeters += distance(railPoints.last, nodes[index]);
-      }
-      railPoints.add(nodes[index]);
-    }
-    final totalMeters =
-        distance(from, railPoints.first) +
-        railMeters +
-        distance(railPoints.last, to);
-    final minutes = ((totalMeters / 533.333333) + 12).ceil().clamp(1, 10000);
-    return RoutePlan(<LatLng>[from, ...railPoints, to], minutes, totalMeters);
-  }
-
   static Future<RoutePlan> transit(LatLng from, LatLng to, String mode) async {
-    final railFuture = mode == 'Train'
-        ? railways(from, to)
-        : Future<RoutePlan?>.value(null);
     final transitModes = switch (mode) {
       'Train' => 'RAIL,SUBURBAN,SUBWAY',
       'Bus / UV' => 'BUS,COACH',
@@ -266,7 +112,7 @@ class Routing {
       'toPlace': '${to.latitude},${to.longitude}',
       'time': DateTime.now().toUtc().toIso8601String(),
       'transitModes': transitModes,
-      'directModes': 'WALK,CAR',
+      'directModes': 'WALK',
       'numItineraries': '3',
       'timetableView': 'false',
       'detailedLegs': 'true',
@@ -287,39 +133,11 @@ class Routing {
       data = null;
     }
     if (data == null) {
-      if (mode == 'Train') {
-        final rail = await railFuture;
-        if (rail != null) return rail;
-      }
-      final roadRoute = await road(from, to, 'Driving');
-      final factor = switch (mode) {
-        'Train' => 0.90,
-        'Bus / UV' => 1.15,
-        _ => 1.25,
-      };
-      return RoutePlan(
-        roadRoute.points,
-        (roadRoute.minutes * factor).ceil().clamp(1, 10000),
-        roadRoute.meters,
-      );
+      throw Exception('Live travel estimates are currently unavailable.');
     }
     final itineraries = data['itineraries'] as List? ?? [];
     if (itineraries.isEmpty) {
-      if (mode == 'Train') {
-        final rail = await railFuture;
-        if (rail != null) return rail;
-      }
-      final roadRoute = await road(from, to, 'Driving');
-      final factor = switch (mode) {
-        'Train' => 0.90,
-        'Bus / UV' => 1.15,
-        _ => 1.25,
-      };
-      return RoutePlan(
-        roadRoute.points,
-        (roadRoute.minutes * factor).ceil().clamp(1, 10000),
-        roadRoute.meters,
-      );
+      throw Exception('No provider transit itinerary is available.');
     }
 
     Map itinerary;
@@ -340,8 +158,6 @@ class Routing {
         );
       }, orElse: () => <String, dynamic>{});
       if (itinerary.isEmpty) {
-        final rail = await railFuture;
-        if (rail != null) return rail;
         throw Exception(
           'No Train itinerary with mapped rail service was found',
         );
@@ -350,6 +166,9 @@ class Routing {
       itinerary = itineraries.first as Map;
     }
     final legs = itinerary['legs'] as List? ?? [];
+    if (!legs.any((leg) => !['WALK', 'CAR', 'BICYCLE'].contains(leg['mode']))) {
+      throw Exception('No provider transit itinerary is available.');
+    }
     final routePoints = <LatLng>[];
     var meters = 0.0;
     for (final leg in legs) {

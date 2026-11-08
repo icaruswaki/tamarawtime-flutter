@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'journey_controller.dart';
+import 'journey_service.dart';
+
 const campuses = ['FEU Tech', 'FEU Manila', 'FEU Diliman', 'FEU Alabang'];
 const days = [
   'Sunday',
@@ -93,8 +96,12 @@ DateTime nextOccurrence(Map<String, dynamic> c, DateTime now) {
 }
 
 class Planner extends ChangeNotifier {
-  Planner(this.cloud);
+  Planner(this.cloud, {JourneyController? journey})
+    : journey = journey ?? JourneyController(provider: JourneyService(cloud)) {
+    this.journey.addListener(notifyListeners);
+  }
   final SupabaseClient? cloud;
+  final JourneyController journey;
   bool local = false;
   String? _loadedUserId;
   Map<String, dynamic> payload = fresh();
@@ -115,6 +122,7 @@ class Planner extends ChangeNotifier {
   Map<String, dynamic> get settings =>
       payload['settings'] as Map<String, dynamic>;
   void clearMemory() {
+    journey.clear();
     payload = fresh();
     local = false;
     _loadedUserId = null;
@@ -212,5 +220,12 @@ class Planner extends ChangeNotifier {
         'event_type': event,
       });
     }
+  }
+
+  @override
+  void dispose() {
+    journey.removeListener(notifyListeners);
+    journey.dispose();
+    super.dispose();
   }
 }

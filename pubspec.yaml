@@ -43,6 +43,7 @@ dependencies:
   google_maps_flutter: ^2.19.0
   table_calendar: ^3.3.0
   app_links: ^7.2.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -50,24 +51,28 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
   flutter_lints: ^6.0.0
   yet_another_json_isolate: ^2.1.1
+  image: ^4.12.0
 
 flutter_launcher_icons:
-  image_path: "assets/images/tamaraw-logo.png"
+  image_path: "assets/generated/launcher-icon.png"
   android: true
   ios: true
   remove_alpha_ios: true
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "assets/generated/launcher-icon.png"
+  adaptive_icon_foreground_inset: 0
   web:
     generate: true
-    image_path: "assets/images/tamaraw-logo.png"
-    background_color: "#171023"
-    theme_color: "#171023"
+    image_path: "assets/generated/launcher-icon.png"
+    background_color: "#f5f7f5"
+    theme_color: "#17643d"
   windows:
     generate: true
-    image_path: "assets/images/tamaraw-logo.png"
+    image_path: "assets/generated/launcher-icon.png"
     icon_size: 256
   macos:
     generate: true
-    image_path: "assets/images/tamaraw-logo.png"
+    image_path: "assets/generated/launcher-icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
