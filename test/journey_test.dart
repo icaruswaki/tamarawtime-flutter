@@ -81,6 +81,26 @@ void main() {
     expect(option.arrival, DateTime.utc(2026, 11, 8, 1, 25));
   });
 
+  test('Provider parsing retains line and agency identities without inferring fare category', () {
+    final fixture = googleFixture();
+    final step = fixture['routes'][0]['legs'][0]['steps'][1];
+    step['distanceMeters'] = 6000;
+    step['transitDetails']['transitLine']['uri'] =
+        'https://fixture.example/service/1';
+    step['transitDetails']['transitLine']['agencies'] = [
+      {'name': 'Fixture operator', 'uri': 'https://fixture.example/operator'},
+    ];
+    final ride = parseGoogleJourneys(
+      fixture,
+      requestedMode: 'Transit',
+      receivedAt: DateTime.utc(2026, 11, 8, 1),
+    ).single.steps[1];
+    expect(ride.lineUri, 'https://fixture.example/service/1');
+    expect(ride.agencyUris, ['https://fixture.example/operator']);
+    expect(ride.meters, 6000);
+    expect(ride.vehicle, 'SUBWAY');
+  });
+
   test(
     'Missing duration and non-transit responses never become transit ETAs',
     () {
@@ -283,14 +303,23 @@ void main() {
       configure(controller);
       await controller.refresh();
       await controller.refresh(automatic: true);
-      expect(provider.calls, hasLength(1));
+      expect(
+        provider.calls.where((query) => query.mode == 'Transit'),
+        hasLength(1),
+      );
       now = now.add(const Duration(seconds: 45));
       await tester.pump(const Duration(seconds: 45));
-      expect(provider.calls, hasLength(2));
+      expect(
+        provider.calls.where((query) => query.mode == 'Transit'),
+        hasLength(2),
+      );
       controller.bindLifecycle();
       now = now.add(const Duration(minutes: 6));
       await tester.pump(const Duration(minutes: 1));
-      expect(provider.calls, hasLength(3));
+      expect(
+        provider.calls.where((query) => query.mode == 'Transit'),
+        hasLength(3),
+      );
       controller.unbindLifecycle();
       controller.dispose();
     },

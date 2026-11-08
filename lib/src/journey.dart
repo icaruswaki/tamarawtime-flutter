@@ -1,9 +1,23 @@
 import 'package:latlong2/latlong.dart';
 
+import '../transit/departure_calculator.dart';
 import 'routing.dart';
 
 const liveEstimatesUnavailable =
     'Live travel estimates are currently unavailable.';
+
+int trafficBufferMinutes(Map<String, dynamic> settings) {
+  final value = settings['trafficBufferMinutes'];
+  return value is num && value.isFinite ? value.toInt().clamp(0, 480) : 30;
+}
+
+Duration drivingAdjustedDuration(
+  Duration base,
+  Map<String, dynamic> settings,
+) => base + Duration(minutes: trafficBufferMinutes(settings));
+
+int drivingAdjustedMinutes(int baseMinutes, Map<String, dynamic> settings) =>
+    drivingAdjustedDuration(Duration(minutes: baseMinutes), settings).inMinutes;
 
 Duration? providerDuration(dynamic value) {
   if (value is! String || !value.endsWith('s')) return null;
@@ -12,7 +26,11 @@ Duration? providerDuration(dynamic value) {
   return Duration(milliseconds: (seconds * 1000).round());
 }
 
-enum JourneySource { google, openStreetMap }
+enum JourneySource { google, openStreetMap, openTripPlanner }
+
+abstract interface class TransitAvailability {
+  String? get transitUnavailableReason;
+}
 
 class JourneyStep {
   const JourneyStep({
@@ -20,6 +38,8 @@ class JourneyStep {
     this.instruction,
     this.lineName,
     this.vehicle,
+    this.lineUri,
+    this.agencyUris = const [],
     this.boardingStop,
     this.alightingStop,
     this.headsign,
@@ -29,6 +49,9 @@ class JourneyStep {
     this.duration,
     this.meters,
     this.points = const [],
+    this.boardingPoint,
+    this.alightingPoint,
+    this.interlineWithPreviousLeg = false,
   });
   final String mode;
   final String? instruction,
@@ -38,10 +61,15 @@ class JourneyStep {
       alightingStop,
       headsign;
   final int? stops;
+  // Stable identities from the routing provider, never inferred from names.
+  final String? lineUri;
+  final List<String> agencyUris;
   final DateTime? departure, arrival;
   final Duration? duration;
   final double? meters;
   final List<LatLng> points;
+  final LatLng? boardingPoint, alightingPoint;
+  final bool interlineWithPreviousLeg;
   bool get transit => mode == 'TRANSIT';
   bool get walking => mode == 'WALK';
 }
@@ -58,6 +86,7 @@ class JourneyOption {
     this.departure,
     this.arrival,
     this.source = JourneySource.google,
+    this.providerTransfers,
   });
   final String id;
   final Duration duration;
@@ -68,8 +97,13 @@ class JourneyOption {
   final DateTime updatedAt;
   final DateTime? departure, arrival;
   final JourneySource source;
-  int get minutes => (duration.inSeconds / 60).ceil();
-  int get transfers => (steps.where((s) => s.transit).length - 1).clamp(0, 100);
+  final int? providerTransfers;
+  int get minutes =>
+      (duration.inMicroseconds / Duration.microsecondsPerMinute).ceil();
+  double? get kilometers => meters == null ? null : meters! / 1000;
+  int get transfers =>
+      providerTransfers ??
+      (steps.where((s) => s.transit).length - 1).clamp(0, 100);
   double? get walkingMeters {
     final walking = steps.where((s) => s.walking).toList();
     if (walking.isEmpty || walking.any((s) => s.meters == null)) return null;
@@ -83,9 +117,12 @@ class JourneyOption {
           .where((s) => s.transit)
           .take(1)
           .any((s) => s.departure != null && s.departure!.isBefore(now));
-  String get sourceLabel => source == JourneySource.google
-      ? 'Google Routes'
-      : 'OpenStreetMap · no live traffic';
+  String get sourceLabel => switch (source) {
+    JourneySource.google => 'Google Routes',
+    JourneySource.openStreetMap => 'OpenStreetMap · no live traffic',
+    JourneySource.openTripPlanner =>
+      'OpenTripPlanner · current GTFS schedule · not a live arrival prediction',
+  };
   bool get hasArrivalEstimate =>
       arrival != null || departure != null || !steps.any((s) => s.transit);
   DateTime arrivalAt(DateTime now) =>
@@ -155,6 +192,12 @@ List<JourneyOption> parseGoogleJourneys(
             instruction: _text(navigation['instructions']),
             lineName: _text(line['nameShort']) ?? _text(line['name']),
             vehicle: _text((line['vehicle'] as Map?)?['type']),
+            lineUri: _text(line['uri']),
+            agencyUris: [
+              for (final agency
+                  in (line['agencies'] as List? ?? []).whereType<Map>())
+                if (_text(agency['uri']) case final String uri) uri,
+            ],
             boardingStop: _text((stops['departureStop'] as Map?)?['name']),
             alightingStop: _text((stops['arrivalStop'] as Map?)?['name']),
             headsign: _text(transit['headsign']),
@@ -261,7 +304,16 @@ class DepartureAdvice {
         !journey.hasArrivalEstimate) {
       return const DepartureAdvice(status: PunctualityStatus.unavailable);
     }
-    final calculatedLeave = classStart.subtract(journey.duration + buffer);
+    final recommendation = calculateDeparture(
+      classStart: classStart,
+      travelEstimate: journey.duration,
+      arrivalBuffer: buffer,
+      preparationDuration: preparation,
+    );
+    if (recommendation == null) {
+      return const DepartureAdvice(status: PunctualityStatus.unavailable);
+    }
+    final calculatedLeave = recommendation.leaveAt;
     final timetableLimited =
         journey.departure != null &&
         journey.departure!.isBefore(calculatedLeave);

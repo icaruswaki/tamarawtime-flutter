@@ -1,0 +1,22 @@
+# OpenTripPlanner 2.8.1 GTFS GraphQL API, not the removed OTP REST API.
+query TamarawJourney($origin: PlanLabeledLocationInput!, $destination: PlanLabeledLocationInput!, $dateTime: PlanDateTimeInput!, $modes: PlanModesInput!) {
+  planConnection(origin: $origin, destination: $destination, dateTime: $dateTime, modes: $modes, first: 3) {
+    routingErrors { code }
+    edges {
+      node {
+        duration start end numberOfTransfers
+        legs {
+          mode transitLeg duration distance headsign serviceDate interlineWithPreviousLeg
+          start { scheduledTime estimated { time } }
+          end { scheduledTime estimated { time } }
+          from { name lat lon }
+          to { name lat lon }
+          route { gtfsId shortName longName url type }
+          agency { gtfsId name url }
+          trip { gtfsId }
+          legGeometry { points }
+        }
+      }
+    }
+  }
+}

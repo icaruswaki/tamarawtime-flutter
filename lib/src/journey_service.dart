@@ -4,17 +4,23 @@ import 'package:latlong2/latlong.dart';
 import 'journey.dart';
 import 'map_configuration.dart';
 import 'routing.dart';
+import '../transit/otp_journey_provider.dart';
 
 abstract interface class JourneyProvider {
   Future<List<JourneyOption>> fetch(JourneyQuery query);
 }
 
-class JourneyService implements JourneyProvider {
+class JourneyService implements JourneyProvider, TransitAvailability {
   JourneyService(
     this.cloud, {
     this.road = Routing.road,
     bool Function()? googleReady,
-  }) : googleReady = googleReady ?? (() => GoogleMapsSetup.available);
+    OtpJourneyProvider? transit,
+  }) : googleReady = googleReady ?? (() => GoogleMapsSetup.available),
+       transit = transit ?? OtpJourneyProvider.fromEnvironment();
+  final OtpJourneyProvider transit;
+  @override
+  String? get transitUnavailableReason => transit.unavailableReason;
   final SupabaseClient? cloud;
   final bool Function() googleReady;
   final Future<RoutePlan> Function(LatLng, LatLng, String) road;
@@ -39,13 +45,15 @@ class JourneyService implements JourneyProvider {
         // A road-only fallback is separately attributed, never called Google.
       }
     }
-    if (!['Walking', 'Driving'].contains(query.mode)) return [];
+    if (!['Walking', 'Driving'].contains(query.mode)) {
+      return transit.fetch(query);
+    }
     try {
       final route = await road(query.origin, query.destination, query.mode);
       return [
         JourneyOption(
           id: 'osm-road',
-          duration: Duration(minutes: route.minutes),
+          duration: route.duration,
           meters: route.meters,
           points: route.points,
           updatedAt: DateTime.now().toUtc(),
@@ -53,7 +61,7 @@ class JourneyService implements JourneyProvider {
           steps: [
             JourneyStep(
               mode: query.mode == 'Walking' ? 'WALK' : 'DRIVE',
-              duration: Duration(minutes: route.minutes),
+              duration: route.duration,
               meters: route.meters,
               points: route.points,
             ),

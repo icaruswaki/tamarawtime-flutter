@@ -11,10 +11,41 @@ const campusPoints = <String, LatLng>{
 };
 
 class RoutePlan {
-  RoutePlan(this.points, this.minutes, this.meters);
+  RoutePlan(this.points, int minutes, this.meters)
+    : duration = Duration(minutes: minutes);
+  RoutePlan.timed(this.points, this.duration, this.meters);
+
+  factory RoutePlan.fromOsrm(Map<String, dynamic> data) {
+    final routes = data['routes'];
+    if (data['code'] != 'Ok' || routes is! List || routes.isEmpty) {
+      throw const FormatException('No OSRM route returned');
+    }
+    final route = routes.first as Map;
+    final seconds = route['duration'];
+    final meters = route['distance'];
+    if (seconds is! num ||
+        !seconds.isFinite ||
+        seconds <= 0 ||
+        meters is! num ||
+        !meters.isFinite ||
+        meters < 0) {
+      throw const FormatException('Invalid OSRM duration or distance');
+    }
+    return RoutePlan.timed(
+      Routing.points(route['geometry']['coordinates']),
+      Duration(
+        microseconds: (seconds * Duration.microsecondsPerSecond).round(),
+      ),
+      meters.toDouble(),
+    );
+  }
+
   final List<LatLng> points;
-  final int minutes;
+  final Duration duration;
   final double meters;
+  int get minutes =>
+      (duration.inMicroseconds / Duration.microsecondsPerMinute).ceil();
+  double get kilometers => meters / 1000;
 }
 
 class JeepneyPlan {
@@ -57,14 +88,7 @@ class Routing {
         'https://routing.openstreetmap.de/routed-$profile/route/v1/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson',
       ),
     );
-    final routes = data['routes'] as List? ?? [];
-    if (routes.isEmpty) throw Exception('No route returned');
-    final r = routes.first;
-    return RoutePlan(
-      points(r['geometry']['coordinates']),
-      ((r['duration'] as num) / 60).ceil().clamp(1, 10000),
-      (r['distance'] as num).toDouble(),
-    );
+    return RoutePlan.fromOsrm(Map<String, dynamic>.from(data as Map));
   }
 
   static List<LatLng> points(dynamic coordinates) => (coordinates as List)
@@ -83,7 +107,7 @@ class Routing {
           value |= (byte & 0x1f) << shift;
           shift += 5;
         } while (byte >= 0x20);
-        return (value & 1) == 1 ? -(value >> 1) : (value >> 1);
+        return (value & 1) == 1 ? ~(value >> 1) : (value >> 1);
       }
 
       latitude += decode();

@@ -1,0 +1,468 @@
+{
+  "schema_version": 1,
+  "catalog_title": "Metro Manila rail line and station reference",
+  "verified_as_of": "2026-11-08",
+  "status": "station_network_reference_not_live_service",
+  "source_urls": [
+    "https://www.lrta.gov.ph/railway-operations/",
+    "https://dotrmrt3.gov.ph/about-us",
+    "https://trains.ph/lrt-1/",
+    "https://trains.ph/lrt-2/",
+    "https://trains.ph/mrt-3/"
+  ],
+  "caution": "Line/station order is reference data. No live GPS coordinates, schedule, arrival times, current line operation, or fare matrix are claimed. Verify before routing students.",
+  "lines": [
+    {
+      "id": "lrt1",
+      "name": "LRT-1",
+      "mode": "train",
+      "station_count": 25,
+      "stations": [
+        {
+          "id": "LRT-1:Fernando Poe Jr.",
+          "name": "Fernando Poe Jr.",
+          "order": 1,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        },
+        {
+          "id": "LRT-1:Balintawak",
+          "name": "Balintawak",
+          "order": 2,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Monumento",
+          "name": "Monumento",
+          "order": 3,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:5th Avenue",
+          "name": "5th Avenue",
+          "order": 4,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:R. Papa",
+          "name": "R. Papa",
+          "order": 5,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Abad Santos",
+          "name": "Abad Santos",
+          "order": 6,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Blumentritt",
+          "name": "Blumentritt",
+          "order": 7,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Tayuman",
+          "name": "Tayuman",
+          "order": 8,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Bambang",
+          "name": "Bambang",
+          "order": 9,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Doroteo Jose",
+          "name": "Doroteo Jose",
+          "order": 10,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Carriedo",
+          "name": "Carriedo",
+          "order": 11,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Central Terminal",
+          "name": "Central Terminal",
+          "order": 12,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:United Nations",
+          "name": "United Nations",
+          "order": 13,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Pedro Gil",
+          "name": "Pedro Gil",
+          "order": 14,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Quirino",
+          "name": "Quirino",
+          "order": 15,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Vito Cruz",
+          "name": "Vito Cruz",
+          "order": 16,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Gil Puyat",
+          "name": "Gil Puyat",
+          "order": 17,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Libertad",
+          "name": "Libertad",
+          "order": 18,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:EDSA",
+          "name": "EDSA",
+          "order": 19,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Baclaran",
+          "name": "Baclaran",
+          "order": 20,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Redemptorist-Aseana",
+          "name": "Redemptorist-Aseana",
+          "order": 21,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:MIA Road",
+          "name": "MIA Road",
+          "order": 22,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:PITX",
+          "name": "PITX",
+          "order": 23,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Ninoy Aquino Avenue",
+          "name": "Ninoy Aquino Avenue",
+          "order": 24,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-1:Dr. Santos",
+          "name": "Dr. Santos",
+          "order": 25,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        }
+      ]
+    },
+    {
+      "id": "lrt2",
+      "name": "LRT-2",
+      "mode": "train",
+      "station_count": 13,
+      "stations": [
+        {
+          "id": "LRT-2:Recto",
+          "name": "Recto",
+          "order": 1,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        },
+        {
+          "id": "LRT-2:Legarda",
+          "name": "Legarda",
+          "order": 2,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Pureza",
+          "name": "Pureza",
+          "order": 3,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:V. Mapa",
+          "name": "V. Mapa",
+          "order": 4,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:J. Ruiz",
+          "name": "J. Ruiz",
+          "order": 5,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Gilmore",
+          "name": "Gilmore",
+          "order": 6,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Betty Go-Belmonte",
+          "name": "Betty Go-Belmonte",
+          "order": 7,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Araneta Center-Cubao",
+          "name": "Araneta Center-Cubao",
+          "order": 8,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Anonas",
+          "name": "Anonas",
+          "order": 9,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Katipunan",
+          "name": "Katipunan",
+          "order": 10,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Santolan",
+          "name": "Santolan",
+          "order": 11,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Marikina-Pasig",
+          "name": "Marikina-Pasig",
+          "order": 12,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "LRT-2:Antipolo",
+          "name": "Antipolo",
+          "order": 13,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        }
+      ]
+    },
+    {
+      "id": "mrt3",
+      "name": "MRT-3",
+      "mode": "train",
+      "station_count": 13,
+      "stations": [
+        {
+          "id": "MRT-3:North Avenue",
+          "name": "North Avenue",
+          "order": 1,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        },
+        {
+          "id": "MRT-3:Quezon Avenue",
+          "name": "Quezon Avenue",
+          "order": 2,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:GMA Kamuning",
+          "name": "GMA Kamuning",
+          "order": 3,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Araneta-Cubao",
+          "name": "Araneta-Cubao",
+          "order": 4,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Santolan-Annapolis",
+          "name": "Santolan-Annapolis",
+          "order": 5,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Ortigas",
+          "name": "Ortigas",
+          "order": 6,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Shaw Boulevard",
+          "name": "Shaw Boulevard",
+          "order": 7,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Boni",
+          "name": "Boni",
+          "order": 8,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Guadalupe",
+          "name": "Guadalupe",
+          "order": 9,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Buendia",
+          "name": "Buendia",
+          "order": 10,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Ayala",
+          "name": "Ayala",
+          "order": 11,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Magallanes",
+          "name": "Magallanes",
+          "order": 12,
+          "latitude": null,
+          "longitude": null,
+          "kind": "station"
+        },
+        {
+          "id": "MRT-3:Taft Avenue",
+          "name": "Taft Avenue",
+          "order": 13,
+          "latitude": null,
+          "longitude": null,
+          "kind": "terminal"
+        }
+      ]
+    }
+  ],
+  "walking_transfers": [
+    {
+      "from": "LRT-1:Doroteo Jose",
+      "to": "LRT-2:Recto",
+      "type": "walking_interchange",
+      "note": "Separate stations; use walking transfer. Verify entrances/accessibility on site."
+    },
+    {
+      "from": "LRT-1:EDSA",
+      "to": "MRT-3:Taft Avenue",
+      "type": "walking_interchange",
+      "note": "Separate stations; use walking transfer."
+    },
+    {
+      "from": "LRT-2:Araneta Center-Cubao",
+      "to": "MRT-3:Araneta-Cubao",
+      "type": "walking_interchange",
+      "note": "Separate stations; use walking transfer."
+    }
+  ]
+}

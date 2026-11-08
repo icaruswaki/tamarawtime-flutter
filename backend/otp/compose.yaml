@@ -1,0 +1,38 @@
+services:
+  otp-build:
+    image: opentripplanner/opentripplanner:2.8.1
+    profiles: [tools]
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx4g
+    volumes:
+      - ./data:/var/opentripplanner
+    command: [--build, --save]
+  otp:
+    image: opentripplanner/opentripplanner:2.8.1
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx4g
+    volumes:
+      - ./data:/var/opentripplanner:ro
+    command: [--load, --serve]
+    ports:
+      - 127.0.0.1:8080:8080
+  gateway:
+    image: python:3.13-slim
+    environment:
+      OTP_ENABLE_ROAD_TRANSIT: ${OTP_ENABLE_ROAD_TRANSIT:-false}
+    working_dir: /app
+    command: [python, -B, server.py, --data, /data, --host, 0.0.0.0, --otp, 'http://otp:8080/otp/gtfs/v1']
+    volumes:
+      - ./:/app:ro
+      - ./data:/data:ro
+    ports:
+      - 127.0.0.1:8090:8090
+    depends_on: [otp]
+  validator:
+    image: python:3.13-slim
+    profiles: [tools]
+    working_dir: /app
+    entrypoint: [python, -B, validate_data.py]
+    volumes:
+      - ./:/app:ro
+      - ./data:/data

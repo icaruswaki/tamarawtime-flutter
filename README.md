@@ -10,6 +10,16 @@ The current [mobility setup guide](docs/mobility-upgrade.md) covers the redesign
 dashboard/map, automatic provider estimates, protected Google Routes proxy,
 transport coverage, map keys, launcher icons and Chrome/Android/APK commands.
 
+The [transit and fare integration guide](docs/transit-integration.md) covers the
+September 28, 2026 LTFRB reference calculator, opt-in student estimates, verified
+ride-distance requirements, departure guidance and optional historical GTFS
+exploration. Missing classifications or distances display **Fare not available**.
+
+The [rail and jeepney V2 guide](docs/rail-jeepney-v2.md) covers **Commute →
+Stations & routes**: all 51 LRT-1/LRT-2/MRT-3 stations, six line termini, three
+walking interchanges, and the imported Sakay historical route/stop directories.
+Historical records never establish current operation, fares or arrivals.
+
 ## Run
 
 ```powershell
@@ -68,3 +78,13 @@ Tests cover weekly/AM-PM time handling, persistence and payload compatibility, t
 Use a hot restart after updating the app. Color schemes are selected in Settings and applied with Save settings. CSS files are reference material; Flutter renders the matching styles through Dart widgets.
 
 `flutter test` includes phone/desktop layout checks. On this workstation, `flutter test --dart-define=STYLE_PREVIEW=true test/style_preview_test.dart` also writes phone and desktop previews to `build/style-preview-390.png` and `build/style-preview-1440.png`.
+
+## Optional scheduled-transit router
+
+The [Sakay source and data audit](docs/sakay-otp-integration.md) explains what
+the original web frontend contributed and which current data is still missing.
+The [OTP Windows/Docker guide](backend/otp/README.md) provides a pinned OTP 2.8.1
+GraphQL gateway and an opt-in Flutter adapter (`OTP_PLANNER_URL`). The engine
+has not been started here: Docker and usable current GTFS/OSM inputs are missing.
+Historical Sakay service dates are not extended. Missing transit ETAs remain
+explained and independent of the working OSRM walking/driving estimates.

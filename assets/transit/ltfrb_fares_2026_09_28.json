@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "title": "Tamaraw Time - Philippine LTFRB reference fares",
+    "effective_date": "2026-09-28",
+    "checked_on": "2026-11-08",
+    "currency": "PHP",
+    "status": "reference_estimates_only",
+    "integration_verification": "Base and per-km reference rates corroborated against the linked PTV report on 2026-11-08. Official LTFRB fare page returned HTTP 403; distance-band matrices not verified.",
+    "rounding_notice": "Illustrative 0.25-peso rounding. Match actual official distance brackets and displayed vehicle fare matrices before deploying.",
+    "sources": [
+      "https://ltfrb.gov.ph/fare-rates/",
+      "https://ptvnews.ph/ltfrb-releases-new-matrices-for-puv-fare-hikes-effective-sept-28/",
+      "https://www.philstar.com/business/2026/09/27/2559277/jeepney-fares-p14-starting-sept-28/",
+      "https://issuances-library.senate.gov.ph/legislative%2Bissuances/Republic%20Act%20No.%2011314"
+    ]
+  },
+  "modes": {
+    "traditional_jeepney": {
+      "label": "Traditional jeepney",
+      "base_km": 4,
+      "base_fare": 14.0,
+      "additional_per_km": 2.0,
+      "agency": "LTFRB"
+    },
+    "modern_jeepney": {
+      "label": "Modern jeepney",
+      "base_km": 4,
+      "base_fare": 17.0,
+      "additional_per_km": 2.4,
+      "agency": "LTFRB"
+    },
+    "ordinary_city_bus": {
+      "label": "Ordinary city bus",
+      "base_km": 5,
+      "base_fare": 15.0,
+      "additional_per_km": 2.49,
+      "agency": "LTFRB"
+    },
+    "aircon_city_bus": {
+      "label": "Air-conditioned city bus",
+      "base_km": 5,
+      "base_fare": 18.0,
+      "additional_per_km": 2.98,
+      "agency": "LTFRB"
+    }
+  },
+  "discount": {
+    "student": 0.2,
+    "note": "RA 11314 grants qualified students at least 20% discount including weekends and holidays; confirm the operator-specific official matrix and eligibility."
+  },
+  "excluded": [
+    "LRT-1",
+    "LRT-2",
+    "MRT-3",
+    "EDSA Busway station-to-station",
+    "P2P",
+    "UV Express",
+    "provincial bus",
+    "taxis",
+    "TNVS"
+  ]
+}

@@ -13,6 +13,74 @@ String journeyClock(DateTime time) =>
 String distanceLabel(double meters) => meters < 1000
     ? '${meters.round()} m'
     : '${(meters / 1000).toStringAsFixed(1)} km';
+
+String durationLabel(Duration duration) {
+  final seconds = (duration.inMicroseconds / Duration.microsecondsPerSecond)
+      .round();
+  return '${seconds ~/ 60} min ${seconds % 60} sec';
+}
+
+/// Road alternatives share the controller used by both the dashboard and planner.
+/// They never replace a missing transit itinerary or its departure guidance.
+class RoadEstimates extends StatelessWidget {
+  const RoadEstimates({
+    super.key,
+    required this.journey,
+    required this.settings,
+    this.onDrivingTap,
+  });
+  final JourneyController journey;
+  final Map<String, dynamic> settings;
+  final VoidCallback? onDrivingTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (journey.origin == null || journey.destination == null) {
+      return const SizedBox.shrink();
+    }
+    final walking = journey.walkingEstimate;
+    final driving = journey.drivingEstimate;
+    String unavailable(String mode) => journey.pendingModes.contains(mode)
+        ? 'Finding estimate…'
+        : 'Estimate unavailable';
+    String distance(JourneyOption option) => option.kilometers == null
+        ? ''
+        : ' · ${option.kilometers!.toStringAsFixed(4)} km';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          key: const ValueKey('walking-estimate'),
+          child: ListTile(
+            leading: const Icon(Icons.directions_walk),
+            title: const Text('Walking estimate'),
+            subtitle: Text(
+              walking == null
+                  ? unavailable('Walking')
+                  : '${durationLabel(walking.duration)}${distance(walking)}\n${walking.sourceLabel}',
+            ),
+          ),
+        ),
+        Card(
+          key: const ValueKey('driving-estimate'),
+          child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: const Text('Driving alternative'),
+            subtitle: Text(
+              driving == null
+                  ? unavailable('Driving')
+                  : 'Base ${driving.source == JourneySource.openStreetMap ? 'OSRM' : 'Google Routes'}: ${durationLabel(driving.duration)}${distance(driving)}\n'
+                        'With traffic allowance: ${durationLabel(drivingAdjustedDuration(driving.duration, settings))}\n'
+                        '${trafficBufferMinutes(settings)} min configurable allowance; not real-time traffic data.',
+            ),
+            onTap: driving == null ? null : onDrivingTap,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 IconData vehicleIcon(String? vehicle) => switch (vehicle) {
   'WALK' => Icons.directions_walk,
   'DRIVE' => Icons.directions_car_outlined,
@@ -88,6 +156,9 @@ class JourneyOptions extends StatelessWidget {
               final option = options[i];
               final chosen = journey.selectedIndex == i;
               final labels = <String>[];
+              if (i == 0 && option.steps.any((step) => step.transit)) {
+                labels.add('Best available journey');
+              }
               if (comparable &&
                   options.every((other) => option.duration <= other.duration)) {
                 labels.add('Fastest');
@@ -231,6 +302,10 @@ class JourneyTimeline extends StatelessWidget {
             subtitle: 'Steps from the routing provider',
           ),
           const SizedBox(height: 20),
+          Text(
+            'Total estimate: ${durationLabel(option.duration)} · ${option.transfers} transfers',
+          ),
+          const SizedBox(height: 12),
           for (var i = 0; i < option.steps.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
@@ -255,7 +330,19 @@ class JourneyTimeline extends StatelessWidget {
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    child: _StepDetails(step: option.steps[i], number: i + 1),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (option.steps[i].transit &&
+                            option.steps.take(i).any((step) => step.transit))
+                          Text(
+                            option.steps[i].interlineWithPreviousLeg
+                                ? 'Stay on the same vehicle'
+                                : 'Transfer to ${option.steps[i].lineName ?? 'the next service'}',
+                          ),
+                        _StepDetails(step: option.steps[i], number: i + 1),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -285,6 +372,17 @@ class _StepDetails extends StatelessWidget {
         style: Theme.of(context).textTheme.titleMedium,
       ),
       if (step.instruction != null && !step.transit) Text(step.instruction!),
+      if (step.transit && step.vehicle != null)
+        Text(switch (step.vehicle) {
+          'RAIL' ||
+          'SUBWAY' ||
+          'TRAM' ||
+          'HEAVY_RAIL' ||
+          'COMMUTER_TRAIN' => 'Train',
+          'JEEPNEY' || 'SHARE_TAXI' => 'Jeepney / shared transit',
+          'BUS' => 'Bus / road transit',
+          _ => step.vehicle!,
+        }),
       if (step.boardingStop != null) Text('Board at ${step.boardingStop}'),
       if (step.headsign != null) Text('Toward ${step.headsign}'),
       if (step.alightingStop != null) Text('Alight at ${step.alightingStop}'),

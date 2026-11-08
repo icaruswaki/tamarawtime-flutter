@@ -499,7 +499,7 @@ class _DashboardState extends State<Dashboard> {
     p.journey.configure(
       destination: campusPoints[next['campus']]!,
       label: next['campus'],
-      mode: p.settings['mode'],
+      mode: 'Transit',
       arriveBy: arriveBy.isAfter(DateTime.now()) ? arriveBy : null,
     );
   }
@@ -1038,6 +1038,12 @@ class Preferences extends StatefulWidget {
 class _PreferencesState extends State<Preferences> {
   var form = GlobalKey<FormState>();
   late final draft = Map<String, dynamic>.from(widget.planner.settings);
+  late bool customTrafficBuffer = !const [
+    15,
+    30,
+    45,
+    60,
+  ].contains((draft['trafficBufferMinutes'] as num?)?.toInt() ?? 30);
   @override
   Widget build(BuildContext context) => Form(
     key: form,
@@ -1141,6 +1147,53 @@ class _PreferencesState extends State<Preferences> {
               onSaved: (v) => draft[key] = int.parse(v!),
             ),
           ),
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          initialValue: customTrafficBuffer
+              ? 'custom'
+              : '${(draft['trafficBufferMinutes'] as num?)?.toInt() ?? 30}',
+          decoration: const InputDecoration(
+            labelText: 'Driving traffic allowance',
+            helperText: 'Added to the road estimate; not live traffic.',
+          ),
+          items: const [15, 30, 45, 60]
+              .map(
+                (minutes) => DropdownMenuItem(
+                  value: '$minutes',
+                  child: Text('$minutes minutes'),
+                ),
+              )
+              .followedBy(const [
+                DropdownMenuItem(value: 'custom', child: Text('Custom')),
+              ])
+              .toList(),
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() {
+              customTrafficBuffer = value == 'custom';
+              if (!customTrafficBuffer) {
+                draft['trafficBufferMinutes'] = int.parse(value);
+              }
+            });
+          },
+        ),
+        if (customTrafficBuffer)
+          TextFormField(
+            initialValue: '${draft['trafficBufferMinutes']}',
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Custom traffic allowance (minutes)',
+            ),
+            validator: (value) {
+              final minutes = int.tryParse(value ?? '');
+              return minutes == null || minutes < 0 || minutes > 480
+                  ? 'Enter 0–480 minutes'
+                  : null;
+            },
+            onSaved: (value) =>
+                draft['trafficBufferMinutes'] = int.parse(value!),
+          ),
+        if (customTrafficBuffer) const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: draft['useManualEstimate'] == true,

@@ -1,0 +1,5 @@
+{
+  "feeds": [],
+  "osm": null,
+  "notice": "No current Metro Manila GTFS or OSM PBF has been supplied. Historical Sakay data must not be used here. See ../README.md."
+}

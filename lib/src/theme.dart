@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'responsive.dart';
@@ -602,33 +604,65 @@ class AuthSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TamarawPalette.of(context);
-    return Container(
-      color: p.paper,
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 475),
-              padding: EdgeInsets.all(
-                AppLayout.mobile(MediaQuery.sizeOf(context).width) ? 20 : 32,
-              ),
-              decoration: BoxDecoration(
-                color: p.surface,
-                borderRadius: BorderRadius.circular(23),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0d09271f),
-                    blurRadius: 32,
-                    offset: Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: Material(color: Colors.transparent, child: child),
+    final originalForest = p.name == TamarawPalette.themes['forest']!.name;
+    return LayoutBuilder(
+      builder: (context, bounds) {
+        // migration_source/styles.css .auth-screen: 150deg, 63%/63.1% split.
+        // CSS angles stay fixed as the viewport changes shape. Flutter alignment
+        // coordinates must account for the viewport's aspect ratio to match it.
+        final dx = .5, dy = math.sqrt(3) / 2;
+        final extent = bounds.maxWidth * dx + bounds.maxHeight * dy;
+        final end = Alignment(
+          dx * extent / bounds.maxWidth,
+          dy * extent / bounds.maxHeight,
+        );
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment(-end.x, -end.y),
+              end: end,
+              colors: [
+                p.heroEnd,
+                originalForest
+                    ? const Color(0xff0f3027)
+                    : p.dark
+                    ? p.sidebar
+                    : p.forest,
+                originalForest ? const Color(0xfff7f5ee) : p.paper,
+                originalForest ? const Color(0xfff7f5ee) : p.paper,
+              ],
+              stops: const [0, .63, .631, 1],
             ),
           ),
-        ),
-      ),
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 475),
+                  padding: EdgeInsets.all(
+                    AppLayout.mobile(MediaQuery.sizeOf(context).width)
+                        ? 20
+                        : 32,
+                  ),
+                  decoration: BoxDecoration(
+                    color: p.surface,
+                    borderRadius: BorderRadius.circular(23),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0d09271f),
+                        blurRadius: 32,
+                        offset: Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Material(color: Colors.transparent, child: child),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

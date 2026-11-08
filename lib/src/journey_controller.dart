@@ -64,6 +64,12 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
       permissionDenied = false;
   String message = 'Choose a starting point or enable your location.';
   List<JourneyOption> options = [];
+  List<JourneyOption> walkingOptions = [], drivingOptions = [];
+  final pendingModes = <String>{};
+  JourneyOption? get walkingEstimate =>
+      walkingOptions.where((option) => option.freshAt(now())).firstOrNull;
+  JourneyOption? get drivingEstimate =>
+      drivingOptions.where((option) => option.freshAt(now())).firstOrNull;
   int selectedIndex = 0, _serial = 0, _locationSerial = 0;
   DateTime? lastRequest, arriveBy;
   StreamSubscription<LatLng>? _gps;
@@ -153,6 +159,9 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     _serial++;
     _deferred?.cancel();
     options = [];
+    walkingOptions = [];
+    drivingOptions = [];
+    pendingModes.clear();
     selectedIndex = 0;
     loading = false;
     message = origin == null
@@ -218,22 +227,53 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     _routedOrigin = origin;
     loading = true;
     options = [];
+    walkingOptions = [];
+    drivingOptions = [];
     selectedIndex = 0;
     message = 'Finding your commute options…';
+    pendingModes.addAll({requestQuery.mode, 'Walking', 'Driving'});
     _emit();
+    Future<void> fetchMode(String requestedMode) async {
+      var result = <JourneyOption>[];
+      try {
+        result = await provider.fetch(
+          JourneyQuery(
+            origin: requestQuery.origin,
+            destination: requestQuery.destination,
+            mode: requestedMode,
+            arriveBy: requestQuery.arriveBy,
+          ),
+        );
+      } catch (_) {
+        // Each mode can fail independently without discarding another ETA.
+      }
+      if (_disposed || serial != _serial) return;
+      pendingModes.remove(requestedMode);
+      if (requestedMode == 'Walking') walkingOptions = result;
+      if (requestedMode == 'Driving') drivingOptions = result;
+      if (requestedMode == requestQuery.mode) {
+        options = result;
+        message = result.isEmpty
+            ? '${requestedMode == 'Transit' ? 'Public transit' : requestedMode} estimate unavailable.'
+            : '${result.length} ${requestedMode.toLowerCase()} route ${result.length == 1 ? 'option' : 'options'} available.';
+        final availability = provider is TransitAvailability
+            ? provider as TransitAvailability
+            : null;
+        if (result.isEmpty &&
+            !{'Walking', 'Driving'}.contains(requestedMode) &&
+            availability?.transitUnavailableReason != null) {
+          message = '$message ${availability!.transitUnavailableReason}';
+        }
+      }
+      // Publish immediately: a slow or failed transit request must not delay
+      // successful walking/driving data reaching either screen.
+      _emit();
+    }
+
     try {
-      final result = await provider.fetch(requestQuery);
-      if (_disposed || serial != _serial) return;
-      options = result;
-      message = result.isEmpty
-          ? liveEstimatesUnavailable
-          : result.first.source == JourneySource.openStreetMap
-          ? '$liveEstimatesUnavailable Showing an OpenStreetMap road estimate without live traffic.'
-          : '${result.length} route ${result.length == 1 ? 'option' : 'options'} available.';
-    } catch (_) {
-      if (_disposed || serial != _serial) return;
-      options = [];
-      message = liveEstimatesUnavailable;
+      await Future.wait(
+        {requestQuery.mode, 'Walking', 'Driving'}.map(fetchMode),
+      );
     } finally {
       if (!_disposed && serial == _serial) {
         loading = false;

@@ -1,0 +1,8 @@
+{
+  "data_status": "no_verified_live_data",
+  "source": "empty safe starter dataset",
+  "notice": "Load permitted GTFS via importer; historical results cannot be shown as active transit service",
+  "routes": [],
+  "stops": [],
+  "route_stops": {}
+}

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../transit/transit_repository.dart';
 import 'journey_controller.dart';
 import 'journey_service.dart';
 
@@ -96,12 +97,22 @@ DateTime nextOccurrence(Map<String, dynamic> c, DateTime now) {
 }
 
 class Planner extends ChangeNotifier {
-  Planner(this.cloud, {JourneyController? journey})
-    : journey = journey ?? JourneyController(provider: JourneyService(cloud)) {
+  Planner(this.cloud, {JourneyController? journey, TransitRepository? transit})
+    : transit = transit ?? TransitRepository(),
+      journey = journey ?? JourneyController(provider: JourneyService(cloud)) {
     this.journey.addListener(notifyListeners);
   }
   final SupabaseClient? cloud;
   final JourneyController journey;
+  final TransitRepository transit;
+  // Explicit session choice, reset at logout. No eligibility inference or new
+  // personal/student records are written to Supabase.
+  bool studentDiscount = false;
+  void selectStudentDiscount(bool value) {
+    studentDiscount = value;
+    notifyListeners();
+  }
+
   bool local = false;
   String? _loadedUserId;
   Map<String, dynamic> payload = fresh();
@@ -115,6 +126,7 @@ class Planner extends ChangeNotifier {
       'prep': 45,
       'buffer': 15,
       'mode': 'Transit',
+      'trafficBufferMinutes': 30,
       'theme': 'forest',
     },
     'onboarding': {'finished': false},
@@ -122,6 +134,7 @@ class Planner extends ChangeNotifier {
   Map<String, dynamic> get settings =>
       payload['settings'] as Map<String, dynamic>;
   void clearMemory() {
+    studentDiscount = false;
     journey.clear();
     payload = fresh();
     local = false;

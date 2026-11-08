@@ -22,8 +22,8 @@ Future<void> openRoutes(WidgetTester tester, {double textScale = 1}) async {
       ),
     ),
   );
-  await tester.ensureVisible(find.text('Find route'));
-  await tester.tap(find.text('Find route'));
+  await tester.ensureVisible(find.text('Find public transit'));
+  await tester.tap(find.text('Find public transit'));
   await tester.pumpAndSettle();
 }
 
@@ -65,6 +65,7 @@ void main() {
     final expandedMap = find.byKey(const ValueKey('expanded-route-map'));
     expect(endpoint('Origin'), findsOneWidget);
     expect(endpoint('Destination'), findsOneWidget);
+    expect(find.text('Travel mode'), findsNothing);
     expect(tester.getSize(expandedMap).height, greaterThan(360));
     expect(find.textContaining('Choose an origin on the map'), findsOneWidget);
 
@@ -113,14 +114,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await openRoutes(tester);
     await choose(tester, 'Origin', 'FEU Tech');
-    await tester.tap(find.widgetWithText(FilledButton, 'Find route'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Find public transit'));
     await tester.pumpAndSettle();
     expect(
       find.text('Choose different origin and destination points.'),
       findsOneWidget,
     );
-    await choose(tester, 'Travel mode', 'Walking');
-
     tester.view.physicalSize = const Size(740, 320);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
@@ -128,7 +127,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Back to commute planner'));
     await tester.pumpAndSettle();
-    expect(find.text('Walking'), findsOneWidget);
+    expect(find.text('Travel mode'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../transit/fare_estimator_view.dart';
 import 'journey.dart';
 import 'journey_widgets.dart';
 import 'planner.dart';
@@ -30,8 +31,7 @@ class PunctualityOverview extends StatelessWidget {
     final prep = (planner.settings['prep'] as num).toInt();
     final buffer = (planner.settings['buffer'] as num).toInt();
     final option =
-        next != null &&
-            j.matches(campusPoints[next['campus']]!, planner.settings['mode'])
+        next != null && j.matches(campusPoints[next['campus']]!, 'Transit')
         ? j.selected
         : null;
     final advice = start == null
@@ -86,7 +86,7 @@ class PunctualityOverview extends StatelessWidget {
                 start == null ? '—' : journeyClock(start),
               ),
               _Metric(
-                'Commute',
+                'Public transit',
                 option == null ? 'Unavailable' : '${option.minutes} min',
               ),
               _Metric('Preparation', '$prep min'),
@@ -104,6 +104,14 @@ class PunctualityOverview extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
+          const SizedBox(height: 18),
+          RoadEstimates(journey: j, settings: planner.settings),
+          FareEstimator(
+            repository: planner.transit,
+            journey: option,
+            studentDiscount: planner.studentDiscount,
+            onStudentDiscountChanged: planner.selectStudentDiscount,
+          ),
         ],
       ),
     );
