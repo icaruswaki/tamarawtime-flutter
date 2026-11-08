@@ -23,7 +23,101 @@ void main() {
       DateTime.utc(2026, 11, 3),
     );
     expect(clock(DateTime.utc(2026, 11, 2, 0, 5)), '12:05 AM');
+    expect(
+      nextOccurrence({
+        'day': 1,
+        'time': '09:00',
+        'end': '10:30',
+      }, DateTime.utc(2026, 11, 2, 9, 30)),
+      DateTime.utc(2026, 11, 2, 9),
+    );
   });
+  test(
+    'Schedule helpers detect conflicts and sort classes chronologically',
+    () {
+      final morning = {
+        'day': 1,
+        'time': '09:00',
+        'end': '10:30',
+        'name': 'Algorithms',
+      };
+      final touching = {
+        'day': 1,
+        'time': '10:30',
+        'end': '12:00',
+        'name': 'Physics',
+      };
+      final overlapping = {
+        'day': 1,
+        'time': '10:00',
+        'end': '11:00',
+        'name': 'English',
+      };
+      expect(classesOverlap(morning, touching), false);
+      expect(classesOverlap(morning, overlapping), true);
+      expect(classesOverlap(morning, {...overlapping, 'day': 2}), false);
+      expect(
+        classesOverlap(
+          {
+            ...morning,
+            'weekdays': [1, 3],
+          },
+          {
+            ...overlapping,
+            'day': 2,
+            'weekdays': [2, 3],
+          },
+        ),
+        true,
+      );
+
+      final sorted = classesByDay([
+        {'day': 1, 'time': '13:00', 'end': '14:00', 'name': 'Later'},
+        {...morning},
+        {'day': 1, 'time': '09:00', 'end': '10:00', 'name': 'Earlier'},
+        {'day': 2, 'time': '08:00', 'end': '09:00', 'name': 'Tomorrow'},
+      ], 1);
+      expect(sorted.map((c) => c['name']).toList(), [
+        'Algorithms',
+        'Earlier',
+        'Later',
+      ]);
+
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 8)),
+        'Upcoming',
+      );
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 9, 30)),
+        'In progress',
+      );
+      expect(
+        classStatus({
+          ...morning,
+          'day': DateTime.utc(2026, 11, 2).weekday % 7,
+        }, DateTime.utc(2026, 11, 2, 11)),
+        'Completed',
+      );
+    },
+  );
+  test(
+    'Class travel estimate prefers class then campus then global defaults',
+    () {
+      final planner = Planner(null);
+      expect(planner.classTravelMinutes({'campus': 'FEU Tech'}), 55);
+      expect(planner.classTravelMinutes({'campus': 'FEU Alabang'}), 110);
+      expect(
+        planner.classTravelMinutes({'campus': 'FEU Tech', 'travel': 42}),
+        42,
+      );
+    },
+  );
   test('Device planner persists data using the web payload schema', () async {
     SharedPreferences.setMockInitialValues({});
     final planner = Planner(null);

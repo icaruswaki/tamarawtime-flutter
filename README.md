@@ -35,7 +35,7 @@ For the existing Supabase account/database:
 flutter run --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co --dart-define=SUPABASE_ANON_KEY=YOUR_PUBLIC_KEY
 ```
 
-Use your public publishable/anon key, never a service-role key. The existing public project configuration remains the default; the defines above override it. Email sign-in must be enabled. Confirm signup email in your browser, then return to the app and sign in. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
+Use your public publishable/anon key, never a service-role key. The existing public project configuration remains the default; the defines above override it. Email sign-in must be enabled. Confirm signup email in your browser, then return to the app and sign in. Password recovery and password changes in Settings use Supabase. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, tasks, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
 
 ## Implemented
 
@@ -46,6 +46,7 @@ Use your public publishable/anon key, never a service-role key. The existing pub
 - Metro Manila jeepney relation discovery, ordered boarding/alighting stops, route selection and pedestrian connectors. No invented stops, live transit ETA, fares, or service availability.
 - Four themes, visual tutorial, JSON backup copied to clipboard, cloud refresh, and confirmed planner reset.
 - Supabase signup/login, Remember me, logout confirmation, complete password recovery and Settings password changes. Serialized cloud writes and original research events remain. Coordinates are held in memory and sent to external routing services, never written into planner payloads or research events.
+- Class schedule conflict checks and per-campus manual commute defaults, with class-specific values taking priority. Manual values remain personal planning inputs and are not presented as provider ETAs.
 - Separate opt-in device storage for use before configuring Supabase.
 
 Provider estimates now update Home and Commute together, with departure/preparation calculations and supported punctuality states. Configured Google routes include structured transit guidance; OSM road estimates remain separately labelled. Missing transit data stays unavailable instead of being replaced by a driving-time multiplier. Manual fallback timing is explicit. Changing destination/mode invalidates old routes. GPS stops when disabled, entering Schedule/Settings, leaving the planner or backgrounding the application. It does not restart automatically after returning from the background.

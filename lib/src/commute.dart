@@ -1224,6 +1224,14 @@ class _CommuteState extends State<Commute> {
                         .toList(),
                     onChanged: (value) {
                       classId = value;
+                      final selectedClass = widget.planner.classes.firstWhere(
+                        (item) => item['id'] == value,
+                        orElse: () => <String, dynamic>{},
+                      );
+                      if (selectedClass.isNotEmpty) {
+                        travel.text =
+                            '${widget.planner.classTravelMinutes(selectedClass)}';
+                      }
                       destinationOverride = null;
                       destinationName = null;
                       reset();
@@ -1401,6 +1409,17 @@ class _CommuteState extends State<Commute> {
                       'travelMode': routeMode,
                       'useManualEstimate': !valid,
                     });
+                    final selectedClass = chosen;
+                    if (selectedClass != null && !valid) {
+                      final classes = widget.planner.classes;
+                      final index = classes.indexWhere(
+                        (item) => item['id'] == selectedClass['id'],
+                      );
+                      if (index >= 0) {
+                        classes[index]['travel'] = journey;
+                        widget.planner.payload['classes'] = classes;
+                      }
+                    }
                     await widget.onSave();
                   },
                   child: const Text('Save as default commute'),

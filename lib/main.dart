@@ -716,7 +716,7 @@ class _DashboardState extends State<Dashboard> {
                 }
                 String time(TimeOfDay t) =>
                     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-                Navigator.pop(ctx, {
+                final candidate = {
                   ...?existing,
                   'id':
                       existing?['id'] ??
@@ -730,7 +730,25 @@ class _DashboardState extends State<Dashboard> {
                   'time': time(start),
                   'end': time(end),
                   'campus': campus,
-                });
+                };
+                final conflict = p.classes
+                    .where((c) => c['id'] != candidate['id'])
+                    .firstWhere(
+                      (c) => classesOverlap(candidate, c),
+                      orElse: () => <String, dynamic>{},
+                    );
+                if (conflict.isNotEmpty) {
+                  final sharedDay = classWeekdays(candidate)
+                      .toSet()
+                      .intersection(classWeekdays(conflict).toSet())
+                      .first;
+                  update(
+                    () => validation =
+                        '${conflict['name']} overlaps this class at ${conflict['time']}–${conflict['end']} on ${days[sharedDay]}.',
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, candidate);
               },
               child: const Text('Save'),
             ),
@@ -762,8 +780,14 @@ class _DashboardState extends State<Dashboard> {
       isThreeLine: true,
       leading: const Icon(Icons.school_outlined),
       title: Text(c['name']),
-      subtitle: Text(
-        '${classWeekdays(c).map((d) => days[d].substring(0, 3)).join(', ')} · ${classTime(c['time'])}–${classTime(c['end'])}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${classWeekdays(c).map((d) => days[d].substring(0, 3)).join(', ')} · ${classTime(c['time'])}–${classTime(c['end'])}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
+          ),
+          Text(classStatus(c, manilaNow())),
+        ],
       ),
       onTap: () => addClass(c),
       trailing: IconButton(
