@@ -6,6 +6,10 @@ The account, calendar and responsive-layout upgrade is documented in
 [Account and calendar setup](docs/account-calendar-upgrade.md), including recovery
 redirect URLs, Remember me behavior, dependencies, and validation limits.
 
+The current [mobility setup guide](docs/mobility-upgrade.md) covers the redesigned
+dashboard/map, automatic provider estimates, protected Google Routes proxy,
+transport coverage, map keys, launcher icons and Chrome/Android/APK commands.
+
 ## Run
 
 ```powershell
@@ -30,11 +34,11 @@ Use your public publishable/anon key, never a service-role key. The existing pub
 - Commute class/mode selection, editable journey/preparation/buffer values and saved defaults.
 - Interactive OpenStreetMap, foreground GPS, walking/driving route geometry and automatic trip estimate.
 - Metro Manila jeepney relation discovery, ordered boarding/alighting stops, route selection and pedestrian connectors. No invented stops, live transit ETA, fares, or service availability.
-- Four themes, five-step guide, JSON backup copied to clipboard, cloud refresh, and confirmed planner reset.
+- Four themes, visual tutorial, JSON backup copied to clipboard, cloud refresh, and confirmed planner reset.
 - Supabase signup/login, Remember me, logout confirmation, complete password recovery and Settings password changes. Serialized cloud writes and original research events remain. Coordinates are held in memory and sent to external routing services, never written into planner payloads or research events.
 - Separate opt-in device storage for use before configuring Supabase.
 
-Walking/driving estimates are applied to the open commute planner. Save as default commute to use those minutes on the dashboard. Changing destination/mode clears route overlays; transit always uses your editable total journey estimate. GPS stops when leaving the commute screen or backgrounding the application. It does not restart automatically after returning from the background.
+Provider estimates now update Home and Commute together, with departure/preparation calculations and supported punctuality states. Configured Google routes include structured transit guidance; OSM road estimates remain separately labelled. Missing transit data stays unavailable instead of being replaced by a driving-time multiplier. Manual fallback timing is explicit. Changing destination/mode invalidates old routes. GPS stops when disabled, entering Schedule/Settings, leaving the planner or backgrounding the application. It does not restart automatically after returning from the background.
 
 ## Mobile builds
 
@@ -44,9 +48,9 @@ Android internet and foreground location permissions and iOS location purpose te
 flutter build apk --debug
 ```
 
-An Android SDK is required. Connect a phone with USB debugging enabled, then run `flutter devices` and `flutter run -d DEVICE_ID`. On this workstation Flutter is installed, but Android SDK is missing, so an APK could not be built here. iOS builds require macOS/Xcode. App Store/Play Store signing, production application identifiers, and launcher icon generation remain release setup tasks; the original logo is included inside the app.
+An Android SDK is required. Connect a phone with USB debugging enabled, then run `flutter devices` and `flutter run -d DEVICE_ID`. The current workstation has an Android SDK and accepted licenses. iOS builds require macOS/Xcode. App Store/Play Store signing and production application identifiers remain release setup tasks. Launcher icons are generated from the updated green-and-gold artwork; Google Maps and Routes setup is documented in the mobility guide.
 
-Maps require internet. Public tile, routing, Overpass, and route-detail services can fail or rate-limit. Test GPS permissions, background/foreground behavior, actual routes, and Supabase signup/load/save on a physical phone before distribution. No backend changes or deployments were performed.
+Maps require internet. Public tile, routing, Overpass, and route-detail services can fail or rate-limit. Test GPS permissions, background/foreground behavior, actual routes, and Supabase signup/load/save on a physical phone before distribution. The Google Routes proxy and additive quota migration are prepared locally; no backend deployment or remote database changes were performed.
 
 ## Checks
 
