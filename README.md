@@ -2,6 +2,10 @@
 
 Native Flutter migration of `Tamaraw_Time_v9_1_Map_Fix.zip`. The original web source is preserved in `migration_source/` for reference; the app runs Dart widgets, not a WebView.
 
+The account, calendar and responsive-layout upgrade is documented in
+[Account and calendar setup](docs/account-calendar-upgrade.md), including recovery
+redirect URLs, Remember me behavior, dependencies, and validation limits.
+
 ## Run
 
 ```powershell
@@ -17,17 +21,17 @@ For the existing Supabase account/database:
 flutter run --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co --dart-define=SUPABASE_ANON_KEY=YOUR_PUBLIC_KEY
 ```
 
-Use your public publishable/anon key, never a service-role key. The ZIP contains placeholder credentials, so no backend is configured by default. Email sign-in must be enabled. Confirm signup email in your browser, then return to the app and sign in. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, tasks, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
+Use your public publishable/anon key, never a service-role key. The existing public project configuration remains the default; the defines above override it. Email sign-in must be enabled. Confirm signup email in your browser, then return to the app and sign in. The existing `app_states.payload` and `activity_events` schema is retained, including class IDs, weekday numbers, 24-hour time strings, settings, and onboarding. Existing web accounts see their schedules after signing into the same project. For a new project only, use `migration_source/schema.sql`; do not recreate an existing research database.
 
 ## Implemented
 
 - Dashboard with next weekly class, get-ready/leave/arrival recommendations and countdown using Philippine calendar time.
-- Add, edit, and delete classes with native AM/PM time pickers and campus selection.
+- Monthly class calendar with weekly markers, selected-day classes, and optional multiple weekdays. Add, edit, and delete classes with native AM/PM time pickers and campus selection.
 - Commute class/mode selection, editable journey/preparation/buffer values and saved defaults.
 - Interactive OpenStreetMap, foreground GPS, walking/driving route geometry and automatic trip estimate.
 - Metro Manila jeepney relation discovery, ordered boarding/alighting stops, route selection and pedestrian connectors. No invented stops, live transit ETA, fares, or service availability.
 - Four themes, five-step guide, JSON backup copied to clipboard, cloud refresh, and confirmed planner reset.
-- Supabase signup/login, session persistence, serialized cloud writes and the original named research events. Coordinates are only held in memory and sent to external routing services, never written into planner payloads or research events.
+- Supabase signup/login, Remember me, logout confirmation, complete password recovery and Settings password changes. Serialized cloud writes and original research events remain. Coordinates are held in memory and sent to external routing services, never written into planner payloads or research events.
 - Separate opt-in device storage for use before configuring Supabase.
 
 Walking/driving estimates are applied to the open commute planner. Save as default commute to use those minutes on the dashboard. Changing destination/mode clears route overlays; transit always uses your editable total journey estimate. GPS stops when leaving the commute screen or backgrounding the application. It does not restart automatically after returning from the background.
@@ -55,7 +59,7 @@ Tests cover weekly/AM-PM time handling, persistence and payload compatibility, t
 
 ## Styling from the web app
 
-`lib/src/theme.dart` translates the original `migration_source/styles.css` into native Flutter themes and widgets: exact Forest/Ocean/Golden Hour/Midnight palettes, cream page backgrounds, rounded bordered cards, form controls, gradient departure banner, gold accents, theme swatches, and responsive navigation. Screens wider than 1020 px use the original sidebar layout; phones use bottom navigation. Page entrance animations respect the device reduced-motion preference.
+`lib/src/theme.dart` translates the original `migration_source/styles.css` into native Flutter themes and widgets: Forest/Ocean/Golden Hour/Midnight palettes, cream page backgrounds, rounded bordered cards, form controls, gradient departure banner, gold accents, and theme swatches. Navigation uses a bottom bar below 600 logical pixels, a rail at 600–1023, and the original sidebar at 1024 and above. Page entrance and calendar animations respect the device reduced-motion preference.
 
 Use a hot restart after updating the app. Color schemes are selected in Settings and applied with Save settings. CSS files are reference material; Flutter renders the matching styles through Dart widgets.
 

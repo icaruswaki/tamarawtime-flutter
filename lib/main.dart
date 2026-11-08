@@ -9,32 +9,63 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'src/planner.dart';
 import 'src/commute.dart';
 import 'src/theme.dart';
+import 'src/account.dart';
+import 'src/account_widgets.dart';
+import 'src/class_calendar.dart';
+import 'src/responsive.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const url = String.fromEnvironment(
-    'https://lddczxofnfrxiktmsboz.supabase.co',
+    'SUPABASE_URL',
+    defaultValue: 'https://lddczxofnfrxiktmsboz.supabase.co',
   );
   const key = String.fromEnvironment(
-    'sb_publishable_z-SOgWTq_0WvLyj17b-y9g_PTm1Lto9',
+    'SUPABASE_ANON_KEY',
+    defaultValue: 'sb_publishable_z-SOgWTq_0WvLyj17b-y9g_PTm1Lto9',
   );
-  SupabaseClient? cloud;
-  if (url.isNotEmpty && key.isNotEmpty) {
-    await Supabase.initialize(url: url, publishableKey: key);
-    cloud = Supabase.instance.client;
-  }
-  runApp(TamarawTimeApp(planner: Planner(cloud)));
+  final storage = RememberMeStorage(
+    SharedPreferencesLocalStorage(
+      persistSessionKey:
+          'sb-${Uri.parse(url).host.split('.').first}-auth-token',
+    ),
+  );
+
+  await Supabase.initialize(
+    url: url,
+    publishableKey: key,
+    authOptions: FlutterAuthClientOptions(
+      localStorage: storage,
+      detectSessionInUri: false,
+    ),
+  );
+
+  final cloud = Supabase.instance.client;
+  final account = AccountAuth(cloud, storage: storage);
+  await account.initializeLinks();
+  runApp(TamarawTimeApp(planner: Planner(cloud), account: account));
 }
 
 class TamarawTimeApp extends StatefulWidget {
-  const TamarawTimeApp({super.key, this.planner});
+  const TamarawTimeApp({super.key, this.planner, this.account});
   final Planner? planner;
+  final AccountAuth? account;
   @override
   State<TamarawTimeApp> createState() => _AppState();
 }
 
 class _AppState extends State<TamarawTimeApp> {
   late final Planner planner = widget.planner ?? Planner(null);
+  late final AccountAuth? account =
+      widget.account ??
+      (planner.cloud == null ? null : AccountAuth(planner.cloud!));
+  @override
+  void dispose() {
+    if (widget.account == null) account?.dispose();
+    if (widget.planner == null) planner.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: planner,
@@ -43,15 +74,16 @@ class _AppState extends State<TamarawTimeApp> {
         title: 'Tamaraw Time',
         debugShowCheckedModeBanner: false,
         theme: tamarawTheme(planner.settings['theme'] as String),
-        home: Entry(planner: planner),
+        home: Entry(planner: planner, account: account),
       );
     },
   );
 }
 
 class Entry extends StatefulWidget {
-  const Entry({super.key, required this.planner});
+  const Entry({super.key, required this.planner, this.account});
   final Planner planner;
+  final AccountAuth? account;
   @override
   State<Entry> createState() => _EntryState();
 }
@@ -60,21 +92,50 @@ class _EntryState extends State<Entry> {
   bool ready = false, busy = false, signup = false, consent = false;
   final email = TextEditingController(), password = TextEditingController();
   String? error;
-  StreamSubscription<AuthState>? auth;
+  String? notice;
+  String? activeUserId;
+  bool remember = true, leaving = false;
   @override
   void initState() {
     super.initState();
-    auth = widget.planner.cloud?.auth.onAuthStateChange.listen((event) {
-      if (event.session == null && ready && !widget.planner.local && mounted) {
-        setState(() => ready = false);
-      }
-    });
-    if (widget.planner.cloud?.auth.currentUser != null) unawaited(enter(false));
+    remember = widget.account?.remember ?? true;
+    widget.account?.addListener(accountChanged);
+    if (widget.planner.cloud?.auth.currentSession != null &&
+        widget.account?.recovering != true &&
+        widget.account?.handlingLink != true) {
+      unawaited(enter(false));
+    }
+  }
+
+  void accountChanged() {
+    if (!mounted) return;
+    final account = widget.account!;
+    if (ready &&
+        !widget.planner.local &&
+        activeUserId != account.client.auth.currentUser?.id) {
+      setState(() => ready = false);
+    }
+    if (account.recovering || account.handlingLink) {
+      setState(() => ready = false);
+    } else if (account.client.auth.currentSession == null &&
+        !widget.planner.local) {
+      setState(() {
+        ready = false;
+        busy = false;
+      });
+      widget.planner.clearMemory();
+    } else if (account.client.auth.currentSession != null &&
+        !ready &&
+        !busy &&
+        !leaving) {
+      unawaited(enter(false));
+    }
+    setState(() {});
   }
 
   @override
   void dispose() {
-    auth?.cancel();
+    widget.account?.removeListener(accountChanged);
     email.dispose();
     password.dispose();
     super.dispose();
@@ -84,7 +145,12 @@ class _EntryState extends State<Entry> {
     setState(() => busy = true);
     try {
       await widget.planner.load(deviceOnly: local);
-      if (mounted) setState(() => ready = true);
+      activeUserId = local ? null : widget.planner.cloud?.auth.currentUser?.id;
+      if (mounted &&
+          widget.account?.recovering != true &&
+          widget.account?.handlingLink != true) {
+        setState(() => ready = true);
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -93,7 +159,8 @@ class _EntryState extends State<Entry> {
   }
 
   Future<void> submit() async {
-    if (!email.text.contains('@') || password.text.length < 6) {
+    if (busy) return;
+    if (!validEmail(email.text) || validatePassword(password.text) != null) {
       setState(
         () => error = 'Enter an email and a password of at least 6 characters.',
       );
@@ -106,9 +173,11 @@ class _EntryState extends State<Entry> {
     setState(() {
       busy = true;
       error = null;
+      notice = null;
     });
     try {
       final client = widget.planner.cloud!;
+      await widget.account?.setRemember(remember);
       if (signup) {
         final result = await client.auth.signUp(
           email: email.text.trim(),
@@ -127,38 +196,125 @@ class _EntryState extends State<Entry> {
           password: password.text,
         );
       }
+      password.clear();
       await enter(false);
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = accountError(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
+  Future<void> requestExit() async {
+    if (leaving) return;
+    leaving = true;
+    try {
+      final local = widget.planner.local;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          scrollable: true,
+          title: Text(
+            local ? 'Exit device planner?' : 'Log out of Tamaraw Time?',
+          ),
+          content: Text(
+            local ? 'Your saved classes will stay on this device.' : 'Are you sure you want to log out? You will need to sign in again to access your account.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(local ? 'Exit planner' : 'Log out'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await widget.planner.waitForSaves();
+      if (!local) await widget.account!.signOut();
+      widget.planner.clearMemory();
+      if (mounted) {
+        setState(() {
+          ready = false;
+          error = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not finish logging out. Check your connection and retry; unsaved changes are kept in memory.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      leaving = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final account = widget.account;
+    if (account?.handlingLink == true) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (account?.recovering == true) {
+      return Scaffold(
+        body: AuthSurface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Brand(),
+              const SizedBox(height: 24),
+              Text(
+                'Reset your password',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 16),
+              PasswordUpdateForm(
+                account: account!,
+                onBusyChanged: (value) => setState(() => busy = value),
+                recovery: true,
+                onSaved: () async {
+                  await account.signOut();
+                  if (mounted) {
+                    setState(() {
+                      ready = false;
+                      busy = false;
+                      notice =
+                          'Password updated. Sign in with your new password.';
+                    });
+                  }
+                },
+              ),
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        try {
+                          await account.signOut();
+                        } catch (e) {
+                          if (mounted) setState(() => error = accountError(e));
+                        }
+                      },
+                child: const Text('Cancel recovery'),
+              ),
+              if (error != null) AccountError(error!),
+            ],
+          ),
+        ),
+      );
+    }
     if (ready) {
       return Dashboard(
         planner: widget.planner,
-        onExit: () async {
-          try {
-            await widget.planner.waitForSaves();
-            if (!widget.planner.local) {
-              await widget.planner.cloud!.auth.signOut();
-            }
-            if (mounted) setState(() => ready = false);
-          } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Could not exit while saving failed: $e. Retry saving first.',
-                  ),
-                ),
-              );
-            }
-          }
-        },
+        account: account,
+        onExit: requestExit,
       );
     }
     return Scaffold(
@@ -181,17 +337,47 @@ class _EntryState extends State<Entry> {
               const SizedBox(height: 20),
               TextField(
                 controller: email,
+                enabled: !busy,
+                autofillHints: const [AutofillHints.email],
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(labelText: 'Student email'),
               ),
               const SizedBox(height: 16),
-              TextField(
+              PasswordField(
                 controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Password (at least 6 characters)',
-                ),
+                enabled: !busy,
+                label: 'Password (at least 6 characters)',
+                autofillHints: [
+                  signup ? AutofillHints.newPassword : AutofillHints.password,
+                ],
               ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: remember,
+                onChanged: busy
+                    ? null
+                    : (value) => setState(() => remember = value!),
+                title: const Text('Remember me'),
+              ),
+              if (!remember)
+                const Text(
+                  'You will need to sign in again after restarting the app or refreshing the page.',
+                ),
+              if (!signup)
+                TextButton(
+                  onPressed: busy || account == null
+                      ? null
+                      : () => showDialog<void>(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (_) => ForgotPasswordDialog(
+                            account: account,
+                            email: email.text,
+                          ),
+                        ),
+                  child: const Text('Forgot password?'),
+                ),
               if (signup)
                 CheckboxListTile(
                   value: consent,
@@ -226,6 +412,10 @@ class _EntryState extends State<Entry> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
+            if (account?.callbackError != null)
+              AccountError(account!.callbackError!),
+            if (notice != null)
+              Semantics(liveRegion: true, child: Text(notice!)),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: busy ? null : () => enter(true),
@@ -245,8 +435,14 @@ class _EntryState extends State<Entry> {
 }
 
 class Dashboard extends StatefulWidget {
-  const Dashboard({super.key, required this.planner, required this.onExit});
+  const Dashboard({
+    super.key,
+    required this.planner,
+    required this.onExit,
+    this.account,
+  });
   final Planner planner;
+  final AccountAuth? account;
   final Future<void> Function() onExit;
   @override
   State<Dashboard> createState() => _DashboardState();
@@ -255,6 +451,7 @@ class Dashboard extends StatefulWidget {
 class _DashboardState extends State<Dashboard> {
   int page = 0;
   int? tutorialIndex;
+  DateTime selectedDate = manilaNow();
   Timer? timer;
   Planner get p => widget.planner;
   @override
@@ -345,7 +542,10 @@ class _DashboardState extends State<Dashboard> {
   Future<void> addClass([Map<String, dynamic>? existing]) async {
     final name = TextEditingController(text: existing?['name']),
         room = TextEditingController(text: existing?['room']);
-    int day = existing?['day'] ?? 1;
+    int day = existing?['day'] ?? selectedDate.weekday % 7;
+    final weekdays = existing == null
+        ? <int>{day}
+        : classWeekdays(existing).toSet();
     String campus = existing?['campus'] ?? p.settings['campus'];
     TimeOfDay parse(String s) {
       final v = s.split(':').map(int.parse).toList();
@@ -355,7 +555,7 @@ class _DashboardState extends State<Dashboard> {
     var start = parse(existing?['time'] ?? '09:00'),
         end = parse(existing?['end'] ?? '10:30');
     String? validation;
-    final result = await showDialog<Map<String, dynamic>>(
+    final classDialog = DialogRoute<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => AlertDialog(
@@ -374,14 +574,22 @@ class _DashboardState extends State<Dashboard> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<int>(
-                    initialValue: day,
-                    items: List.generate(
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Repeats weekly on'),
+                  ),
+                  Wrap(
+                    spacing: 6,
+                    children: List.generate(
                       7,
-                      (i) => DropdownMenuItem(value: i, child: Text(days[i])),
+                      (i) => FilterChip(
+                        label: Text(days[i].substring(0, 3)),
+                        selected: weekdays.contains(i),
+                        onSelected: (selected) => update(() {
+                          selected ? weekdays.add(i) : weekdays.remove(i);
+                        }),
+                      ),
                     ),
-                    onChanged: (v) => day = v!,
-                    decoration: const InputDecoration(labelText: 'Day'),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -391,7 +599,7 @@ class _DashboardState extends State<Dashboard> {
                   ),
                   ListTile(
                     title: const Text('Starts'),
-                    trailing: Text(start.format(ctx)),
+                    trailing: Text(classTime('${start.hour}:${start.minute}')),
                     onTap: () async {
                       final t = await showTimePicker(
                         context: ctx,
@@ -407,7 +615,7 @@ class _DashboardState extends State<Dashboard> {
                   ),
                   ListTile(
                     title: const Text('Ends'),
-                    trailing: Text(end.format(ctx)),
+                    trailing: Text(classTime('${end.hour}:${end.minute}')),
                     onTap: () async {
                       final t = await showTimePicker(
                         context: ctx,
@@ -423,8 +631,14 @@ class _DashboardState extends State<Dashboard> {
                   ),
                   DropdownButtonFormField<String>(
                     initialValue: campus,
+                    isExpanded: true,
                     items: campuses
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(c, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) => campus = v!,
                     decoration: const InputDecoration(labelText: 'Campus'),
@@ -442,23 +656,27 @@ class _DashboardState extends State<Dashboard> {
             FilledButton(
               onPressed: () {
                 if (name.text.trim().isEmpty ||
+                    weekdays.isEmpty ||
                     end.hour * 60 + end.minute <=
                         start.hour * 60 + start.minute) {
                   update(
-                    () => validation =
-                        'Enter a subject and an end time after the start.',
+                    () => validation = 'Enter a subject, select a weekday and choose an end time after the start.',
                   );
                   return;
                 }
                 String time(TimeOfDay t) =>
                     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
                 Navigator.pop(ctx, {
+                  ...?existing,
                   'id':
                       existing?['id'] ??
                       DateTime.now().microsecondsSinceEpoch.toString(),
                   'name': name.text.trim(),
                   'room': room.text.trim(),
-                  'day': day,
+                  'day': weekdays.contains(day)
+                      ? day
+                      : (weekdays.toList()..sort()).first,
+                  'weekdays': weekdays.toList()..sort(),
                   'time': time(start),
                   'end': time(end),
                   'campus': campus,
@@ -470,6 +688,7 @@ class _DashboardState extends State<Dashboard> {
         ),
       ),
     );
+    final result = await Navigator.of(context).push(classDialog);
     if (result != null) {
       final list = p.classes;
       list.removeWhere((c) => c['id'] == result['id']);
@@ -483,7 +702,9 @@ class _DashboardState extends State<Dashboard> {
         });
       }
     }
-    // Dialog transitions may still use the controllers until the next frame.
+    await classDialog.completed;
+    name.dispose();
+    room.dispose();
   }
 
   Widget classTile(Map<String, dynamic> c) => Card(
@@ -492,7 +713,7 @@ class _DashboardState extends State<Dashboard> {
       leading: const Icon(Icons.school_outlined),
       title: Text(c['name']),
       subtitle: Text(
-        '${days[c['day']]} · ${c['time']}–${c['end']}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
+        '${classWeekdays(c).map((d) => days[d].substring(0, 3)).join(', ')} · ${classTime(c['time'])}–${classTime(c['end'])}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
       ),
       onTap: () => addClass(c),
       trailing: IconButton(
@@ -574,7 +795,11 @@ class _DashboardState extends State<Dashboard> {
         ),
         const SizedBox(height: 28),
         LayoutBuilder(
-          builder: (context, box) => box.maxWidth >= 740
+          builder: (context, box) =>
+              AppLayout.columns(
+                box.maxWidth,
+                textScale: AppLayout.textScale(context),
+              )
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -675,13 +900,14 @@ class _DashboardState extends State<Dashboard> {
           ),
         ),
         const SizedBox(height: 24),
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
           children: [
-            Expanded(
-              child: Text(
-                'Upcoming classes',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
+            Text(
+              'Upcoming classes',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
             TextButton(
               onPressed: () => setState(() => page = 1),
@@ -813,6 +1039,7 @@ class _DashboardState extends State<Dashboard> {
     listenable: p,
     builder: (context, _) => PlannerShell(
       page: page,
+      local: p.local,
       onPage: (i) => setState(() {
         page = i;
         if (tutorialIndex == 0 && i == 1) tutorialIndex = 1;
@@ -862,35 +1089,12 @@ class _DashboardState extends State<Dashboard> {
             key: ValueKey(page),
             child: switch (page) {
               0 => home(),
-              1 => Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Class Schedule',
-                    style: Theme.of(context).textTheme.headlineLarge,
-                  ),
-                  Text(
-                    'Your weekly class timetable.',
-                    style: TextStyle(color: TamarawPalette.of(context).muted),
-                  ),
-                  const SizedBox(height: 24),
-                  if (p.classes.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(26),
-                        child: Text(
-                          'No classes saved yet. Tap + to add a class.',
-                          style: TextStyle(
-                            color: TamarawPalette.of(context).muted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ...(p.classes..sort(
-                        (a, b) => (a['day'] as int).compareTo(b['day'] as int),
-                      ))
-                      .map(classTile),
-                ],
+              1 => ClassCalendar(
+                classes: p.classes,
+                selected: selectedDate,
+                onSelected: (date) => setState(() => selectedDate = date),
+                classTile: classTile,
+                onAdd: () => addClass(),
               ),
               2 => Card(
                 child: Padding(
@@ -906,6 +1110,7 @@ class _DashboardState extends State<Dashboard> {
                   padding: const EdgeInsets.all(23),
                   child: Preferences(
                     planner: p,
+                    account: widget.account,
                     onSave: () => persist('settings_saved'),
                     onTutorial: tutorial,
                   ),
@@ -931,8 +1136,10 @@ class Preferences extends StatefulWidget {
     required this.planner,
     required this.onSave,
     required this.onTutorial,
+    this.account,
   });
   final Planner planner;
+  final AccountAuth? account;
   final Future<void> Function() onSave, onTutorial;
   @override
   State<Preferences> createState() => _PreferencesState();
@@ -952,6 +1159,21 @@ class _PreferencesState extends State<Preferences> {
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 20),
+        Text('Account Security', style: Theme.of(context).textTheme.titleLarge),
+        if (widget.planner.local || widget.account == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('Sign in to a cloud account to change your password.'),
+          )
+        else
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('Change password'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => showChangePassword(context, widget.account!),
+          ),
+        const SizedBox(height: 20),
         TextFormField(
           initialValue: draft['name'],
           maxLength: 40,
@@ -965,6 +1187,7 @@ class _PreferencesState extends State<Preferences> {
             padding: const EdgeInsets.only(bottom: 16),
             child: DropdownButtonFormField<String>(
               initialValue: draft[entry.key],
+              isExpanded: true,
               decoration: InputDecoration(
                 labelText: {
                   'campus': 'Preferred campus',
@@ -984,6 +1207,7 @@ class _PreferencesState extends State<Preferences> {
                               'night': 'Midnight',
                             }[v] ??
                             v,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   )

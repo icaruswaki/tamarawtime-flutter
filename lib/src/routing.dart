@@ -33,13 +33,15 @@ class JeepneyPlan {
 
 class Routing {
   static Future<dynamic> get(Uri uri) async {
-    final response = await http.get(
-      uri,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
-      },
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .get(
+          uri,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
+          },
+        )
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
       throw Exception('Map service unavailable (${response.statusCode})');
     }
@@ -93,7 +95,9 @@ class Routing {
 
   static double pow10(int precision) {
     var value = 1.0;
-    for (var i = 0; i < precision; i++) value *= 10;
+    for (var i = 0; i < precision; i++) {
+      value *= 10;
+    }
     return value;
   }
 
@@ -102,19 +106,22 @@ class Routing {
       (from.latitude + to.latitude) / 2,
       (from.longitude + to.longitude) / 2,
     );
-    final query = '[out:json][timeout:12];way(around:12000,${midpoint.latitude},${midpoint.longitude})["railway"~"^(rail|light_rail|subway)\$"];out geom;';
+    final query =
+        '[out:json][timeout:12];way(around:12000,${midpoint.latitude},${midpoint.longitude})["railway"~"^(rail|light_rail|subway)\$"];out geom;';
 
     Future<dynamic> fetch(String host) async {
       try {
-        final response = await http.post(
-          Uri.https(host, '/api/interpreter'),
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
-          },
-          body: {'data': query},
-        ).timeout(const Duration(seconds: 8));
+        final response = await http
+            .post(
+              Uri.https(host, '/api/interpreter'),
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json',
+                'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
+              },
+              body: {'data': query},
+            )
+            .timeout(const Duration(seconds: 8));
         if (response.statusCode != 200) return null;
         return jsonDecode(response.body);
       } catch (_) {
@@ -141,7 +148,8 @@ class Routing {
     final adjacency = <List<int>>[];
 
     int indexFor(LatLng point) {
-      final key = '${point.latitude.toStringAsFixed(5)},${point.longitude.toStringAsFixed(5)}';
+      final key =
+          '${point.latitude.toStringAsFixed(5)},${point.longitude.toStringAsFixed(5)}';
       final existing = nodeIndex[key];
       if (existing != null) return existing;
       final index = nodes.length;
@@ -153,17 +161,25 @@ class Routing {
 
     for (final element in elements) {
       final geometry = (element['geometry'] as List?) ?? const [];
-      final points = geometry.map((node) => LatLng(
-        (node['lat'] as num).toDouble(),
-        (node['lon'] as num).toDouble(),
-      )).toList();
+      final points = geometry
+          .map(
+            (node) => LatLng(
+              (node['lat'] as num).toDouble(),
+              (node['lon'] as num).toDouble(),
+            ),
+          )
+          .toList();
       if (points.length < 2) continue;
       for (var i = 0; i < points.length; i++) {
         final current = indexFor(points[i]);
         if (i == 0) continue;
         final previous = indexFor(points[i - 1]);
-        if (!adjacency[current].contains(previous)) adjacency[current].add(previous);
-        if (!adjacency[previous].contains(current)) adjacency[previous].add(current);
+        if (!adjacency[current].contains(previous)) {
+          adjacency[current].add(previous);
+        }
+        if (!adjacency[previous].contains(current)) {
+          adjacency[previous].add(current);
+        }
       }
     }
     if (nodes.isEmpty) return null;
@@ -182,7 +198,10 @@ class Routing {
     }
 
     final start = nearest(from), target = nearest(to);
-    if (distance(from, nodes[start]) > 15000 || distance(to, nodes[target]) > 15000) return null;
+    if (distance(from, nodes[start]) > 15000 ||
+        distance(to, nodes[target]) > 15000) {
+      return null;
+    }
 
     final costs = List<double>.filled(nodes.length, double.infinity);
     final previous = List<int>.filled(nodes.length, -1);
@@ -220,19 +239,20 @@ class Routing {
     var railMeters = 0.0;
     final railPoints = <LatLng>[];
     for (final index in orderedIndexes) {
-      if (railPoints.isNotEmpty) railMeters += distance(railPoints.last, nodes[index]);
+      if (railPoints.isNotEmpty) {
+        railMeters += distance(railPoints.last, nodes[index]);
+      }
       railPoints.add(nodes[index]);
     }
-    final totalMeters = distance(from, railPoints.first) + railMeters + distance(railPoints.last, to);
+    final totalMeters =
+        distance(from, railPoints.first) +
+        railMeters +
+        distance(railPoints.last, to);
     final minutes = ((totalMeters / 533.333333) + 12).ceil().clamp(1, 10000);
     return RoutePlan(<LatLng>[from, ...railPoints, to], minutes, totalMeters);
   }
 
-  static Future<RoutePlan> transit(
-    LatLng from,
-    LatLng to,
-    String mode,
-  ) async {
+  static Future<RoutePlan> transit(LatLng from, LatLng to, String mode) async {
     final railFuture = mode == 'Train'
         ? railways(from, to)
         : Future<RoutePlan?>.value(null);
@@ -254,10 +274,14 @@ class Routing {
     });
     dynamic data;
     try {
-      final response = await http.get(
-        uri,
-        headers: {'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)'},
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) data = jsonDecode(response.body);
     } catch (_) {
       data = null;
@@ -300,20 +324,27 @@ class Routing {
 
     Map itinerary;
     if (mode == 'Train') {
-      itinerary = itineraries.cast<Map>().firstWhere(
-        (candidate) {
-          final legs = candidate['legs'] as List? ?? [];
-          return legs.any((leg) => const {
-            'RAIL', 'SUBURBAN', 'SUBWAY', 'TRAM', 'REGIONAL_RAIL',
-            'HIGHSPEED_RAIL', 'LONG_DISTANCE', 'NIGHT_RAIL'
-          }.contains(leg['mode']));
-        },
-        orElse: () => <String, dynamic>{},
-      );
+      itinerary = itineraries.cast<Map>().firstWhere((candidate) {
+        final legs = candidate['legs'] as List? ?? [];
+        return legs.any(
+          (leg) => const {
+            'RAIL',
+            'SUBURBAN',
+            'SUBWAY',
+            'TRAM',
+            'REGIONAL_RAIL',
+            'HIGHSPEED_RAIL',
+            'LONG_DISTANCE',
+            'NIGHT_RAIL',
+          }.contains(leg['mode']),
+        );
+      }, orElse: () => <String, dynamic>{});
       if (itinerary.isEmpty) {
         final rail = await railFuture;
         if (rail != null) return rail;
-        throw Exception('No Train itinerary with mapped rail service was found');
+        throw Exception(
+          'No Train itinerary with mapped rail service was found',
+        );
       }
     } else {
       itinerary = itineraries.first as Map;
@@ -333,9 +364,12 @@ class Routing {
       }
     }
     final duration = (itinerary['duration'] as num?)?.toDouble() ?? 0;
-    if (duration <= 0) throw Exception('Transit connection returned no duration');
+    if (duration <= 0) {
+      throw Exception('Transit connection returned no duration');
+    }
     return RoutePlan(routePoints, (duration / 60).ceil(), meters);
   }
+
   static bool isJeepney(Map tags) {
     if (!['bus', 'jeepney', 'share_taxi'].contains(tags['route'])) return false;
     final text = [
@@ -359,10 +393,14 @@ class Routing {
           caseSensitive: false,
         ).hasMatch('${tags['ref'] ?? ''}') ||
         (tags['route'] == 'bus' &&
-            (RegExp(r'^\d{1,3}[A-Z]?$', caseSensitive: false)
-                    .hasMatch('${tags['ref'] ?? ''}') ||
-                RegExp(r'route\s*\d{1,3}\b', caseSensitive: false)
-                    .hasMatch(text))) ;
+            (RegExp(
+                  r'^\d{1,3}[A-Z]?$',
+                  caseSensitive: false,
+                ).hasMatch('${tags['ref'] ?? ''}') ||
+                RegExp(
+                  r'route\s*\d{1,3}\b',
+                  caseSensitive: false,
+                ).hasMatch(text)));
   }
 
   static Future<List<JeepneyPlan>> jeepneys(LatLng from, LatLng to) async {
@@ -374,7 +412,8 @@ class Routing {
         throw Exception('Jeepney discovery covers Metro Manila only.');
       }
     }
-    final query = '[out:json][timeout:18];('
+    final query =
+        '[out:json][timeout:18];('
         'relation(around:3500,${from.latitude},${from.longitude})["type"="route"]["route"~"^(bus|jeepney|share_taxi)"]["name"];'
         'relation(around:3500,${to.latitude},${to.longitude})["type"="route"]["route"~"^(bus|jeepney|share_taxi)"]["name"];'
         ');out tags;';
@@ -419,15 +458,17 @@ class Routing {
     const distance = Distance();
     for (final relation in relations) {
       try {
-        final response = await http.get(
-          Uri.parse(
-            'https://openstreetmap.tools/public_transport_geojson/api/route/${relation['id']}',
-          ),
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
-          },
-        ).timeout(const Duration(seconds: 8));
+        final response = await http
+            .get(
+              Uri.parse(
+                'https://openstreetmap.tools/public_transport_geojson/api/route/${relation['id']}',
+              ),
+              headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'TamarawTime/1.0 (open-source Flutter app)',
+              },
+            )
+            .timeout(const Duration(seconds: 8));
         if (response.statusCode != 200) continue;
         final detail = jsonDecode(response.body);
         final stops = (detail['stops'] as List? ?? [])
@@ -463,7 +504,8 @@ class Routing {
         );
         if (lines.isEmpty) continue;
         if (bi < 0 && stops.isEmpty) {
-          final coordinates = lines.first['geometry']['coordinates'] as List? ?? const [];
+          final coordinates =
+              lines.first['geometry']['coordinates'] as List? ?? const [];
           final geometry = points(coordinates);
           if (geometry.length < 2) continue;
           var originIndex = 0, destinationIndex = 0;
@@ -481,8 +523,12 @@ class Routing {
             }
           }
           if (originScore > 1500 || destinationScore > 1500) continue;
-          var firstIndex = originIndex < destinationIndex ? originIndex : destinationIndex;
-          var secondIndex = originIndex < destinationIndex ? destinationIndex : originIndex;
+          var firstIndex = originIndex < destinationIndex
+              ? originIndex
+              : destinationIndex;
+          var secondIndex = originIndex < destinationIndex
+              ? destinationIndex
+              : originIndex;
           if (secondIndex - firstIndex < 0) continue;
           final board = geometry[firstIndex];
           final alight = geometry[secondIndex];

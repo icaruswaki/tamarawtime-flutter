@@ -63,11 +63,16 @@ void main() {
       false,
     );
     expect(Routing.isJeepney({'route': 'bus', 'ref': 'T123'}), true);
-    expect(Routing.isJeepney({'route': 'bus', 'ref': '23', 'name': 'Route 23'}), true);
+    expect(
+      Routing.isJeepney({'route': 'bus', 'ref': '23', 'name': 'Route 23'}),
+      true,
+    );
     expect(Routing.isJeepney({'route': 'bus', 'name': 'Route 23'}), true);
     expect(Routing.isJeepney({'route': 'jeepney'}), true);
   });
-  testWidgets('Visual tutorial guides a local planner in live app sections', (tester) async {
+  testWidgets('Visual tutorial guides a local planner in live app sections', (
+    tester,
+  ) async {
     final payload = Planner.fresh();
     SharedPreferences.setMockInitialValues({
       'tamaraw_local': jsonEncode(payload),
@@ -107,7 +112,9 @@ void main() {
     expect(find.text('4. Personalize your planner'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('Replay tutorial guide returns to dashboard step one', (tester) async {
+  testWidgets('Replay tutorial guide returns to dashboard step one', (
+    tester,
+  ) async {
     final payload = Planner.fresh();
     payload['onboarding'] = {'finished': true};
     SharedPreferences.setMockInitialValues({
@@ -116,7 +123,7 @@ void main() {
     await tester.pumpWidget(const TamarawTimeApp());
     await tester.tap(find.text('Continue on this device'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.settings_outlined).first);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Replay tutorial guide'));
     await tester.tap(find.text('Replay tutorial guide'));

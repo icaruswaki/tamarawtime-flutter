@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'responsive.dart';
+
 /// Color tokens translated from migration_source/styles.css (including v7 themes).
 class TamarawPalette {
   const TamarawPalette({
@@ -375,12 +377,14 @@ class PlannerShell extends StatelessWidget {
     required this.onExit,
     required this.child,
     this.floatingActionButton,
+    this.local = false,
   });
   final int page;
   final ValueChanged<int> onPage;
   final VoidCallback onExit;
   final Widget child;
   final Widget? floatingActionButton;
+  final bool local;
   static const labels = [
     'Dashboard',
     'Class Schedule',
@@ -396,7 +400,9 @@ class PlannerShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = TamarawPalette.of(context);
-    final wide = MediaQuery.sizeOf(context).width >= 1020;
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = AppLayout.desktop(width);
+    final mobile = AppLayout.mobile(width);
     return Scaffold(
       appBar: wide
           ? null
@@ -404,16 +410,15 @@ class PlannerShell extends StatelessWidget {
               title: const Brand(compact: true),
               actions: [
                 IconButton(
-                  tooltip: 'Sign out / exit planner',
+                  tooltip: local ? 'Exit planner' : 'Log out',
                   onPressed: onExit,
                   icon: const Icon(Icons.logout),
                 ),
               ],
             ),
       floatingActionButton: floatingActionButton,
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
+      bottomNavigationBar: mobile
+          ? NavigationBar(
               selectedIndex: page,
               onDestinationSelected: onPage,
               destinations: List.generate(
@@ -423,11 +428,41 @@ class PlannerShell extends StatelessWidget {
                   label: const ['Home', 'Schedule', 'Commute', 'Settings'][i],
                 ),
               ),
-            ),
+            )
+          : null,
       body: SafeArea(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (!mobile && !wide)
+              LayoutBuilder(
+                builder: (context, box) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: box.maxHeight),
+                    child: IntrinsicHeight(
+                      child: NavigationRail(
+                        selectedIndex: page,
+                        onDestinationSelected: onPage,
+                        labelType: NavigationRailLabelType.selected,
+                        destinations: List.generate(
+                          4,
+                          (i) => NavigationRailDestination(
+                            icon: Icon(icons[i]),
+                            label: Text(
+                              const [
+                                'Home',
+                                'Schedule',
+                                'Commute',
+                                'Settings',
+                              ][i],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (wide)
               Container(
                 width: 250,
@@ -436,68 +471,81 @@ class PlannerShell extends StatelessWidget {
                   horizontal: 17,
                   vertical: 26,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Brand(inverse: true),
-                    const SizedBox(height: 35),
-                    for (int i = 0; i < 4; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 9),
-                        child: TextButton.icon(
-                          onPressed: () => onPage(i),
-                          style: TextButton.styleFrom(
-                            alignment: Alignment.centerLeft,
-                            backgroundColor: page == i
-                                ? p.green
-                                : Colors.transparent,
-                            foregroundColor: page == i
-                                ? p.onAccent
-                                : const Color(0xffc6d7ce),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 17,
-                              vertical: 17,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Brand(inverse: true),
+                      const SizedBox(height: 35),
+                      for (int i = 0; i < 4; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 9),
+                          child: TextButton.icon(
+                            onPressed: () => onPage(i),
+                            style: TextButton.styleFrom(
+                              alignment: Alignment.centerLeft,
+                              backgroundColor: page == i
+                                  ? p.green
+                                  : Colors.transparent,
+                              foregroundColor: page == i
+                                  ? p.onAccent
+                                  : const Color(0xffc6d7ce),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 17,
+                                vertical: 17,
+                              ),
                             ),
-                          ),
-                          icon: Icon(icons[i], size: 21),
-                          label: Text(
-                            labels[i],
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                            icon: Icon(icons[i], size: 21),
+                            label: Text(
+                              labels[i],
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
+                      const SizedBox(height: 48),
+                      Text(
+                        'Plan smarter. Arrive earlier.',
+                        style: TextStyle(color: p.yellow, fontSize: 13),
                       ),
-                    const Spacer(),
-                    Text(
-                      'Plan smarter. Arrive earlier.',
-                      style: TextStyle(color: p.yellow, fontSize: 13),
-                    ),
-                    const SizedBox(height: 5),
-                    const Text(
-                      'Built for FEU students',
-                      style: TextStyle(color: Color(0xffbcd1c4), fontSize: 11),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton.icon(
-                      onPressed: onExit,
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xffc6d7ce),
-                        alignment: Alignment.centerLeft,
+                      const SizedBox(height: 5),
+                      const Text(
+                        'Built for FEU students',
+                        style: TextStyle(
+                          color: Color(0xffbcd1c4),
+                          fontSize: 11,
+                        ),
                       ),
-                      icon: const Icon(Icons.logout, size: 18),
-                      label: const Text('Sign out / exit'),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: onExit,
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xffc6d7ce),
+                          alignment: Alignment.centerLeft,
+                        ),
+                        icon: const Icon(Icons.logout, size: 18),
+                        label: Text(local ? 'Exit planner' : 'Log out'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
-                  wide ? 42 : 18,
+                  wide
+                      ? 42
+                      : mobile
+                      ? 18
+                      : 24,
                   wide ? 38 : 22,
-                  wide ? 42 : 18,
+                  wide
+                      ? 42
+                      : mobile
+                      ? 18
+                      : 24,
                   90,
                 ),
                 child: Center(
@@ -537,7 +585,7 @@ class AuthSurface extends StatelessWidget {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 475),
               padding: EdgeInsets.all(
-                MediaQuery.sizeOf(context).width < 500 ? 23 : 32,
+                AppLayout.mobile(MediaQuery.sizeOf(context).width) ? 20 : 32,
               ),
               decoration: BoxDecoration(
                 color: p.surface,
@@ -550,7 +598,7 @@ class AuthSurface extends StatelessWidget {
                   ),
                 ],
               ),
-              child: child,
+              child: Material(color: Colors.transparent, child: child),
             ),
           ),
         ),
@@ -767,7 +815,11 @@ class RoutineResults extends StatelessWidget {
         )
         .toList();
     return LayoutBuilder(
-      builder: (context, box) => box.maxWidth >= 600
+      builder: (context, box) =>
+          AppLayout.columns(
+            box.maxWidth,
+            textScale: AppLayout.textScale(context),
+          )
           ? Row(
               children: [
                 for (int i = 0; i < cells.length; i++) ...[
