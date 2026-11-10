@@ -204,6 +204,7 @@ class Planner extends ChangeNotifier {
       'travel': 55,
       'prep': 45,
       'buffer': 15,
+      'punctualityNotificationsEnabled': false,
       'mode': 'Transit',
       'trafficBufferMinutes': 30,
       'campusTravel': {
