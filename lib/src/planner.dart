@@ -182,6 +182,16 @@ class Planner extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> selectTravelMode(String mode) {
+    if (!const {'Transit', 'Walking', 'Driving'}.contains(mode)) {
+      throw ArgumentError.value(mode, 'mode', 'Unsupported commute mode');
+    }
+    settings['mode'] = mode;
+    settings['travelMode'] = mode;
+    notifyListeners();
+    return save();
+  }
+
   bool local = false;
   String? _loadedUserId;
   Map<String, dynamic> payload = fresh();

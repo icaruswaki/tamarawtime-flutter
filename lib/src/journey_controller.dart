@@ -63,7 +63,11 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
       permissionDenied = false;
   String message = 'Choose a starting point or enable your location.';
   List<JourneyOption> options = [];
+  List<JourneyOption> transitOptions = [];
   List<JourneyOption> walkingOptions = [], drivingOptions = [];
+  JourneyOption? get cachedTransitOption => transitOptions.firstOrNull;
+  JourneyOption? get bestTransitOption =>
+      transitOptions.where((option) => option.freshAt(now())).firstOrNull;
   final pendingModes = <String>{};
   JourneyOption? get walkingEstimate =>
       walkingOptions.where((option) => option.freshAt(now())).firstOrNull;
@@ -140,17 +144,36 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     DateTime? arriveBy,
     bool autoRefresh = true,
   }) {
-    final changed =
-        this.destination != destination ||
-        this.mode != mode ||
-        this.arriveBy != arriveBy;
+    final destinationChanged = this.destination != destination;
+    final arrivalChanged = this.arriveBy != arriveBy;
+    final modeChanged = this.mode != mode;
     this.destination = destination;
     destinationLabel = label;
     this.mode = mode;
     this.arriveBy = arriveBy;
-    if (changed) {
+    if (destinationChanged || arrivalChanged) {
       invalidate();
       if (autoRefresh && origin != null) scheduleRefresh();
+    } else if (modeChanged) {
+      _serial++;
+      _deferred?.cancel();
+      pendingModes.clear();
+      loading = false;
+      final cached = switch (mode) {
+        'Walking' => walkingOptions,
+        'Driving' => drivingOptions,
+        _ => transitOptions,
+      };
+      options = cached
+          .where((option) => option.freshAt(now()))
+          .take(1)
+          .toList();
+      selectedIndex = 0;
+      message = options.isEmpty
+          ? 'Ready to find a route.'
+          : 'Best ${mode.toLowerCase()} route available.';
+      _emit();
+      if (autoRefresh && origin != null && options.isEmpty) scheduleRefresh();
     }
   }
 
@@ -158,6 +181,7 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     _serial++;
     _deferred?.cancel();
     options = [];
+    transitOptions = [];
     walkingOptions = [];
     drivingOptions = [];
     pendingModes.clear();
@@ -199,6 +223,7 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refresh({bool automatic = false}) async {
+    if (!automatic) _deferred?.cancel();
     final requestQuery = query;
     if (requestQuery == null ||
         _disposed ||
@@ -230,7 +255,11 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     drivingOptions = [];
     selectedIndex = 0;
     message = 'Finding your commute options…';
-    pendingModes.addAll({requestQuery.mode, 'Walking', 'Driving'});
+    final requestedModes = {requestQuery.mode, 'Walking', 'Driving'};
+    if ({'Walking', 'Driving'}.contains(requestQuery.mode)) {
+      requestedModes.add('Transit');
+    }
+    pendingModes.addAll(requestedModes);
     _emit();
     Future<void> fetchMode(String requestedMode) async {
       var result = <JourneyOption>[];
@@ -248,13 +277,18 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (_disposed || serial != _serial) return;
       pendingModes.remove(requestedMode);
+      result = _bestOption(result);
+      if (!{'Walking', 'Driving'}.contains(requestedMode) &&
+          result.isNotEmpty) {
+        transitOptions = result;
+      }
       if (requestedMode == 'Walking') walkingOptions = result;
       if (requestedMode == 'Driving') drivingOptions = result;
       if (requestedMode == requestQuery.mode) {
         options = result;
         message = result.isEmpty
             ? '${requestedMode == 'Transit' ? 'Public transit' : requestedMode} estimate unavailable.'
-            : '${result.length} ${requestedMode.toLowerCase()} route ${result.length == 1 ? 'option' : 'options'} available.';
+            : 'Best ${requestedMode.toLowerCase()} route available.';
         final availability = provider is TransitAvailability
             ? provider as TransitAvailability
             : null;
@@ -270,15 +304,33 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     try {
-      await Future.wait(
-        {requestQuery.mode, 'Walking', 'Driving'}.map(fetchMode),
-      );
+      await Future.wait(requestedModes.map(fetchMode));
     } finally {
       if (!_disposed && serial == _serial) {
         loading = false;
         _emit();
       }
     }
+  }
+
+  List<JourneyOption> _bestOption(List<JourneyOption> options) {
+    if (options.isEmpty) return const [];
+    final ranked = [...options]
+      ..sort((left, right) {
+        if (left.hasDuration != right.hasDuration) {
+          return left.hasDuration ? -1 : 1;
+        }
+        if (left.hasDuration) {
+          final duration = left.duration.compareTo(right.duration);
+          if (duration != 0) return duration;
+        }
+        final transfers = left.transfers.compareTo(right.transfers);
+        if (transfers != 0) return transfers;
+        return (left.walkingMeters ?? double.infinity).compareTo(
+          right.walkingMeters ?? double.infinity,
+        );
+      });
+    return [ranked.first];
   }
 
   void select(int index) {

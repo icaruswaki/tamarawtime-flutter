@@ -79,7 +79,36 @@ class JourneyService implements JourneyProvider, TransitAvailability {
         ),
       ];
     } catch (_) {
-      return [];
+      final walking = query.mode == 'Walking';
+      final directMeters = const Distance()(query.origin, query.destination);
+      final estimatedMeters = directMeters * (walking ? 1.25 : 1.5);
+      final speedMetersPerSecond = walking ? 1.2 : 6.94;
+      final seconds = (estimatedMeters / speedMetersPerSecond).ceil().clamp(
+        60,
+        86400,
+      );
+      final duration = Duration(seconds: seconds);
+      final mode = walking ? 'WALK' : 'DRIVE';
+      return [
+        JourneyOption(
+          id: 'distance-${query.mode.toLowerCase()}',
+          duration: duration,
+          meters: estimatedMeters,
+          points: const [],
+          updatedAt: DateTime.now().toUtc(),
+          source: JourneySource.distanceEstimate,
+          limitations: const [
+            'Approximate distance-based ETA; no routed path or live traffic data.',
+          ],
+          steps: [
+            JourneyStep(
+              mode: mode,
+              duration: duration,
+              meters: estimatedMeters,
+            ),
+          ],
+        ),
+      ];
     }
   }
 }

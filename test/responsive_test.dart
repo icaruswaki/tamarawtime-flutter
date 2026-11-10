@@ -33,6 +33,18 @@ void main() {
       await tester.pumpWidget(TamarawTimeApp());
       await tester.tap(find.text('Continue on this device'));
       await tester.pumpAndSettle();
+      expect(find.text('View schedule'), findsOneWidget);
+      final scheduleButton = find.ancestor(
+        of: find.text('View schedule'),
+        matching: find.byType(TextButton),
+      );
+      expect(
+        find.descendant(
+          of: scheduleButton,
+          matching: find.byIcon(Icons.arrow_forward),
+        ),
+        findsOneWidget,
+      );
       for (final size in [
         const Size(320, 740),
         const Size(390, 844),

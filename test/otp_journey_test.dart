@@ -212,7 +212,7 @@ void main() {
       );
       expect(journey.duration, const Duration(minutes: 45));
       expect(journey.fare, isNull);
-      expect(find.text('Driving alternative'), findsOneWidget);
+      expect(find.text('Driving estimate'), findsOneWidget);
       expect(find.text('Walking estimate'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

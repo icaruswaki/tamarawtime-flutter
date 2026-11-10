@@ -81,7 +81,7 @@ void main() {
     final expandedMap = find.byKey(const ValueKey('expanded-route-map'));
     expect(endpoint('Origin'), findsOneWidget);
     expect(endpoint('Destination'), findsOneWidget);
-    expect(find.text('Travel mode'), findsNothing);
+    expect(find.byKey(const ValueKey('travel-mode-selector')), findsOneWidget);
     expect(tester.getSize(expandedMap).height, greaterThan(360));
     expect(find.textContaining('Choose an origin on the map'), findsOneWidget);
 
@@ -121,6 +121,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('Walking and driving can be selected as active route modes', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await openRoutes(tester);
+
+    final selector = find.byKey(const ValueKey('travel-mode-selector'));
+    expect(selector, findsOneWidget);
+    await tester.tap(find.descendant(of: selector, matching: find.text('Walk')));
+    await tester.pumpAndSettle();
+    expect(find.text('Find walking route'), findsOneWidget);
+
+    await tester.tap(find.descendant(of: selector, matching: find.text('Drive')));
+    await tester.pumpAndSettle();
+    expect(find.text('Find driving route'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: selector, matching: find.text('Transit')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Find public transit'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('Route fields fit small screens and reject identical endpoints', (
     tester,
   ) async {
@@ -143,7 +171,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Back to commute planner'));
     await tester.pumpAndSettle();
-    expect(find.text('Travel mode'), findsNothing);
+    expect(find.byKey(const ValueKey('travel-mode-selector')), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

@@ -493,13 +493,17 @@ class _DashboardState extends State<Dashboard> {
     final classes = p.upcoming;
     if (classes.isEmpty) return;
     final next = classes.first;
+    final storedMode = p.settings['mode'];
+    final mode = const {'Walking', 'Driving'}.contains(storedMode)
+        ? storedMode as String
+        : 'Transit';
     final arriveBy = nextOccurrence(next, manilaNow()).subtract(
       Duration(hours: 8, minutes: (p.settings['buffer'] as num).toInt()),
     );
     p.journey.configure(
       destination: campusPoints[next['campus']]!,
       label: next['campus'],
-      mode: 'Transit',
+      mode: mode,
       arriveBy: arriveBy.isAfter(DateTime.now()) ? arriveBy : null,
     );
   }
@@ -792,9 +796,10 @@ class _DashboardState extends State<Dashboard> {
         const SizedBox(height: 24),
         SectionHeading(
           'Upcoming classes',
-          trailing: TextButton(
+          trailing: TextButton.icon(
             onPressed: () => switchPage(1),
-            child: const Text('View schedule →'),
+            icon: const Icon(Icons.arrow_forward, size: 16),
+            label: const Text('View schedule'),
           ),
         ),
         const SizedBox(height: 16),
@@ -1425,8 +1430,7 @@ class _TutorialMapPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final point = (double x, double y) =>
-        Offset(size.width * x, size.height * y);
+    Offset point(double x, double y) => Offset(size.width * x, size.height * y);
     final blocks = [
       (0.25, 0.08, 0.43, 0.17),
       (0.56, 0.08, 0.74, 0.17),

@@ -238,6 +238,10 @@ class _CommuteState extends State<Commute> {
   @override
   void initState() {
     super.initState();
+    final savedMode = widget.planner.settings['mode'];
+    routeMode = const {'Walking', 'Driving'}.contains(savedMode)
+        ? savedMode as String
+        : 'Transit';
     j.bindLifecycle();
     position = j.origin;
     if (j.manualOrigin) originOverride = j.origin;
@@ -282,7 +286,12 @@ class _CommuteState extends State<Commute> {
       status = j.message;
       if (changed) {
         line = option?.points ?? [];
-        if (option?.hasDuration == true) travel.text = '${option!.minutes}';
+        final timed = journeyWithTrafficAllowance(
+          option,
+          routeMode,
+          widget.planner.settings,
+        );
+        if (timed?.hasDuration == true) travel.text = '${timed!.minutes}';
       }
       if (j.permissionDenied || j.locating) {
         status = j.message;
@@ -339,6 +348,15 @@ class _CommuteState extends State<Commute> {
     }
   }
 
+  void selectRouteMode(String mode) {
+    if (mode == routeMode) return;
+    routeMode = mode;
+    unawaited(widget.planner.selectTravelMode(mode).catchError((Object _) {}));
+    showDrivingAlternative = false;
+    reset();
+    if (origin != null && !j.matches(destination, mode)) unawaited(find());
+  }
+
   void reset() {
     serial++;
     lastRoute = null;
@@ -350,12 +368,18 @@ class _CommuteState extends State<Commute> {
       jeepneys = [];
       selected = null;
       showDrivingAlternative = false;
-      status = routeMode == 'Walking'
-          ? 'Walking directions to $destinationLabel selected. Find a route.'
-          : 'Origin or destination changed. Find a public transit route.';
+      status = switch (routeMode) {
+        'Walking' =>
+          'Walking directions to $destinationLabel selected. Find a route.',
+        'Driving' =>
+          'Driving directions to $destinationLabel selected. Find a route.',
+        _ => 'Origin or destination changed. Find a public transit route.',
+      };
     });
     syncQuery(refresh: true);
-    if (origin != null) j.scheduleRefresh();
+    if (origin != null && !j.matches(destination, routeMode)) {
+      j.scheduleRefresh();
+    }
     if (origin != null) {
       fit([origin!, destination]);
     } else {
@@ -586,6 +610,37 @@ class _CommuteState extends State<Commute> {
     );
   }
 
+  Widget routeModeControls() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      SegmentedButton<String>(
+        key: const ValueKey('travel-mode-selector'),
+        showSelectedIcon: false,
+        segments: const [
+          ButtonSegment(value: 'Transit', label: Text('Transit')),
+          ButtonSegment(value: 'Walking', label: Text('Walk')),
+          ButtonSegment(value: 'Driving', label: Text('Drive')),
+        ],
+        selected: {routeMode},
+        onSelectionChanged: (selection) => selectRouteMode(selection.single),
+      ),
+      const SizedBox(height: 12),
+      FilledButton.icon(
+        onPressed: busy ? null : find,
+        icon: Icon(switch (routeMode) {
+          'Walking' => Icons.directions_walk,
+          'Driving' => Icons.directions_car_outlined,
+          _ => Icons.directions_transit,
+        }),
+        label: Text(switch (routeMode) {
+          'Walking' => 'Find walking route',
+          'Driving' => 'Find driving route',
+          _ => 'Find public transit',
+        }),
+      ),
+    ],
+  );
+
   Widget expandedContent(BuildContext context, MapController controller) {
     return Scaffold(
       appBar: AppBar(
@@ -649,14 +704,7 @@ class _CommuteState extends State<Commute> {
                               ],
                             ),
                             const SizedBox(height: 12),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: FilledButton.icon(
-                                onPressed: busy ? null : find,
-                                icon: const Icon(Icons.directions_transit),
-                                label: const Text('Find public transit'),
-                              ),
-                            ),
+                            routeModeControls(),
                           ],
                         ),
                       ),
@@ -828,11 +876,7 @@ class _CommuteState extends State<Commute> {
                 const SizedBox(height: 12),
                 endpointField(false),
                 const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: busy ? null : find,
-                  icon: const Icon(Icons.directions_transit),
-                  label: const Text('Find public transit'),
-                ),
+                routeModeControls(),
                 const SizedBox(height: 12),
                 Text(status),
                 if (busy) const LinearProgressIndicator(),
@@ -1060,21 +1104,34 @@ class _CommuteState extends State<Commute> {
   }
 
   List<Widget> routeCards() => [
-    if (j.options.isNotEmpty) ...[
+    if (routeMode == 'Transit' && j.options.isNotEmpty) ...[
       JourneyOptions(
         journey: j,
         repository: widget.planner.transit,
         studentDiscount: widget.planner.studentDiscount,
       ),
       if (j.selected != null) JourneyTimeline(option: j.selected!),
+    ] else if (j.cachedTransitOption case final transit?) ...[
+      JourneyOptions(
+        journey: j,
+        repository: widget.planner.transit,
+        studentDiscount: widget.planner.studentDiscount,
+        displayedOptions: [transit],
+        isSelected: false,
+        onSelected: () {
+          if (routeMode == 'Transit') {
+            unawaited(find());
+          } else {
+            selectRouteMode('Transit');
+          }
+        },
+      ),
     ],
     RoadEstimates(
       journey: j,
       settings: widget.planner.settings,
-      onDrivingTap: () => update(() {
-        showDrivingAlternative = true;
-        fit([origin!, destination, ...drivingAlternative!.points]);
-      }),
+      selectedMode: routeMode,
+      onModeSelected: selectRouteMode,
     ),
     MobilityCard(
       child: FareEstimator(
@@ -1100,7 +1157,11 @@ class _CommuteState extends State<Commute> {
             now: DateTime.now().toUtc(),
             preparation: Duration(minutes: int.tryParse(prep.text) ?? 45),
             buffer: Duration(minutes: int.tryParse(buffer.text) ?? 15),
-            journey: j.matches(destination, routeMode) ? j.selected : null,
+            journey: journeyWithTrafficAllowance(
+              j.matches(destination, routeMode) ? j.selected : null,
+              routeMode,
+              widget.planner.settings,
+            ),
           );
     return MobilityCard(
       child: Column(
@@ -1131,10 +1192,14 @@ class _CommuteState extends State<Commute> {
   @override
   Widget build(BuildContext context) {
     final c = chosen;
-    final valid =
-        j.matches(destination, routeMode) && j.selected?.hasDuration == true;
+    final selectedJourney = journeyWithTrafficAllowance(
+      j.matches(destination, routeMode) ? j.selected : null,
+      routeMode,
+      widget.planner.settings,
+    );
+    final valid = selectedJourney?.hasDuration == true;
     final journey = valid
-        ? j.selected!.minutes
+        ? selectedJourney!.minutes
         : int.tryParse(travel.text) ?? 55;
     final preparation = int.tryParse(prep.text) ?? 45;
     final margin = int.tryParse(buffer.text) ?? 15;
@@ -1146,7 +1211,7 @@ class _CommuteState extends State<Commute> {
             now: DateTime.now().toUtc(),
             preparation: Duration(minutes: preparation),
             buffer: Duration(minutes: margin),
-            journey: valid ? j.selected : null,
+            journey: valid ? selectedJourney : null,
           );
     final providerTiming = advice.leaveAt != null;
     final leave = providerTiming

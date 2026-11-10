@@ -266,6 +266,41 @@ void main() {
     expect(road.minutes, 21);
     expect(road.source, JourneySource.openStreetMap);
     expect(road.sourceLabel, contains('no live traffic'));
+
+    final unavailableRoad = JourneyService(
+      null,
+      local: TestProvider(),
+      road: (_, _, _) async => throw StateError('Routing service unavailable'),
+    );
+    for (final mode in ['Walking', 'Driving']) {
+      final estimate = (await unavailableRoad.fetch(
+        JourneyQuery(origin: from, destination: to, mode: mode),
+      )).single;
+      expect(estimate.hasDuration, isTrue);
+      expect(estimate.duration, greaterThan(Duration.zero));
+      expect(estimate.source, JourneySource.distanceEstimate);
+      expect(estimate.sourceLabel, contains('road route unavailable'));
+      expect(estimate.points, isEmpty);
+    }
+  });
+
+  test('Controller keeps only the fastest transit itinerary', () async {
+    final provider = TestProvider()
+      ..handler = (query) async => query.mode == 'Transit'
+          ? [
+              sampleJourney(DateTime.now(), id: 'slower', minutes: 32),
+              sampleJourney(DateTime.now(), id: 'fastest', minutes: 19),
+            ]
+          : [];
+    final controller = JourneyController(provider: provider);
+    addTearDown(controller.dispose);
+    configure(controller);
+
+    await controller.refresh();
+
+    expect(controller.options, hasLength(1));
+    expect(controller.selected?.id, 'fastest');
+    expect(controller.selected?.minutes, 19);
   });
 
   test('Obsolete requests cannot overwrite the current destination or selected itinerary', () async {
@@ -293,6 +328,43 @@ void main() {
     expect(controller.selected!.id, 'new');
     expect(controller.loading, isFalse);
   });
+
+  test(
+    'Walking and driving selections publish their own ETA options',
+    () async {
+      final provider = TestProvider()
+        ..handler = (query) async => [
+          sampleJourney(DateTime.now(), id: query.mode, minutes: 24),
+        ];
+      final controller = JourneyController(provider: provider);
+      addTearDown(controller.dispose);
+      configure(controller);
+
+      await controller.refresh();
+      expect(controller.walkingEstimate?.id, 'Walking');
+      expect(controller.drivingEstimate?.id, 'Driving');
+
+      controller.configure(
+        destination: campusPoints['FEU Tech']!,
+        label: 'FEU Tech',
+        mode: 'Walking',
+        autoRefresh: false,
+      );
+      await controller.refresh();
+      expect(controller.selected?.id, 'Walking');
+      expect(provider.calls.map((query) => query.mode), contains('Walking'));
+
+      controller.configure(
+        destination: campusPoints['FEU Tech']!,
+        label: 'FEU Tech',
+        mode: 'Driving',
+        autoRefresh: false,
+      );
+      await controller.refresh();
+      expect(controller.selected?.id, 'Driving');
+      expect(provider.calls.map((query) => query.mode), contains('Driving'));
+    },
+  );
 
   testWidgets(
     'Automatic refreshes are throttled and a stale ETA is refreshed',

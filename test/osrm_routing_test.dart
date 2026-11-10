@@ -109,7 +109,8 @@ void main() {
       810900,
     );
     expect(controller.drivingEstimate!.points, [origin, destination]);
-    expect(controller.walkingEstimate, isNull);
+    expect(controller.walkingEstimate, isNotNull);
+    expect(controller.walkingEstimate!.source, JourneySource.distanceEstimate);
     expect(controller.selected, isNull);
     expect(notifications, greaterThan(1));
     provider.transit.completeError(StateError('Transit unavailable'));
@@ -158,7 +159,7 @@ void main() {
         home: Scaffold(body: SingleChildScrollView(child: child)),
       );
       void checkEstimates() {
-        expect(find.text('Driving alternative'), findsOneWidget);
+        expect(find.text('Driving estimate'), findsOneWidget);
         expect(find.text('Walking estimate'), findsOneWidget);
         expect(
           find.textContaining('Base OSRM: 13 min 31 sec · 8.0852 km'),
@@ -202,8 +203,8 @@ void main() {
         find.textContaining('Public transit estimate unavailable.'),
         findsWidgets,
       );
-      await tester.ensureVisible(find.text('Driving alternative'));
-      await tester.tap(find.text('Driving alternative'));
+      await tester.ensureVisible(find.text('Driving estimate'));
+      await tester.tap(find.text('Driving estimate'));
       await tester.pumpAndSettle();
       final map = tester.widget<FlutterMap>(
         find.byKey(const ValueKey('commute-map')),
@@ -215,13 +216,21 @@ void main() {
             .map((line) => line.points),
         contains(orderedEquals([origin, destination])),
       );
-      expect(controller.selected, isNull);
+      expect(controller.selected?.source, JourneySource.openStreetMap);
+      expect(controller.selected?.duration.inMilliseconds, 810900);
       expect(tester.takeException(), isNull);
 
       await http.runWithClient(
         () async {
           await tester.ensureVisible(find.text('Find public transit'));
           await tester.tap(find.text('Find public transit'));
+          await tester.pumpAndSettle();
+          final modeSelector = find.byKey(
+            const ValueKey('travel-mode-selector'),
+          );
+          await tester.tap(
+            find.descendant(of: modeSelector, matching: find.text('Transit')),
+          );
           await tester.pumpAndSettle();
           final sheet = find.byKey(const ValueKey('journey-details-sheet'));
           expect(sheet, findsOneWidget);
@@ -232,8 +241,8 @@ void main() {
             const Offset(0, -350),
           );
           await tester.pumpAndSettle();
-          await tester.ensureVisible(find.text('Driving alternative'));
-          await tester.tap(find.text('Driving alternative'));
+          await tester.ensureVisible(find.text('Driving estimate'));
+          await tester.tap(find.text('Driving estimate'));
           await tester.pumpAndSettle();
           final expanded = tester.widget<FlutterMap>(
             find.byKey(const ValueKey('expanded-route-map')),
@@ -245,7 +254,8 @@ void main() {
                 .map((line) => line.points),
             contains(orderedEquals([origin, destination])),
           );
-          expect(controller.selected, isNull);
+          expect(controller.selected?.source, JourneySource.openStreetMap);
+          expect(controller.selected?.duration.inMilliseconds, 810900);
           expect(tester.takeException(), isNull);
           await tester.tap(find.byTooltip('Back to commute planner'));
           await tester.pumpAndSettle();

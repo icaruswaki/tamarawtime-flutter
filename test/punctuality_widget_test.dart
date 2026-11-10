@@ -13,7 +13,7 @@ import 'support/journey_fixture.dart';
 
 void main() {
   testWidgets(
-    'Route options and itinerary steps reflow and selecting an option updates guidance',
+    'Only the best transit route is shown alongside selectable road ETAs',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
@@ -74,12 +74,28 @@ void main() {
       );
       await tester.pumpWidget(app(1));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const ValueKey('route-option-1')));
-      await tester.tap(find.byKey(const ValueKey('route-option-1')));
+      expect(find.byKey(const ValueKey('route-option-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('route-option-1')), findsNothing);
+      expect(controller.selected!.id, 'rail');
+      expect(find.text('Walking estimate'), findsOneWidget);
+      expect(find.text('Driving estimate'), findsOneWidget);
+      await tester.ensureVisible(find.text('Driving estimate'));
+      await tester.tap(find.text('Driving estimate'));
       await tester.pumpAndSettle();
-      expect(controller.selected!.id, 'bus');
-      expect(find.textContaining('Fixture bus'), findsWidgets);
-      expect(find.text('Board at Fixture bus stop'), findsOneWidget);
+      expect(controller.mode, 'Driving');
+      expect(controller.selected!.minutes, 20);
+      expect(find.byKey(const ValueKey('route-option-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('route-option-1')), findsNothing);
+      await tester.ensureVisible(find.text('Walking estimate'));
+      await tester.tap(find.text('Walking estimate'));
+      await tester.pumpAndSettle();
+      expect(controller.mode, 'Walking');
+      expect(controller.selected!.minutes, 20);
+      await tester.ensureVisible(find.byKey(const ValueKey('route-option-0')));
+      await tester.tap(find.byKey(const ValueKey('route-option-0')));
+      await tester.pumpAndSettle();
+      expect(controller.mode, 'Transit');
+      expect(controller.selected!.id, 'rail');
       tester.view.physicalSize = const Size(320, 740);
       await tester.pumpWidget(app(2));
       await tester.pumpAndSettle();
@@ -88,6 +104,67 @@ void main() {
       planner.dispose();
     },
   );
+
+  testWidgets('Expired rail option remains visible after an empty refresh', (
+    tester,
+  ) async {
+    final now = DateTime.now().toUtc();
+    var transitRequests = 0;
+    final provider = TestProvider()
+      ..handler = (query) async {
+        if (query.mode == 'Transit') {
+          transitRequests++;
+          return transitRequests == 1
+              ? [
+                  JourneyOption(
+                    id: 'rail',
+                    duration: const Duration(minutes: 20),
+                    points: const [],
+                    updatedAt: now.subtract(const Duration(minutes: 6)),
+                    steps: const [
+                      JourneyStep(mode: 'TRANSIT', vehicle: 'RAIL'),
+                    ],
+                  ),
+                ]
+              : [];
+        }
+        return [sampleJourney(now, id: query.mode, minutes: 16)];
+      };
+    final controller = JourneyController(provider: provider, now: () => now);
+    final planner = Planner(null, journey: controller)..local = true;
+    configure(controller);
+    await controller.refresh();
+    planner.settings['mode'] = 'Driving';
+    controller.configure(
+      destination: controller.destination!,
+      label: 'FEU Tech',
+      mode: 'Driving',
+      autoRefresh: false,
+    );
+    await controller.refresh();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: tamarawTheme('forest'),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Commute(planner: planner, onSave: () async {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.bestTransitOption, isNull);
+    expect(controller.cachedTransitOption?.id, 'rail');
+    expect(find.byKey(const ValueKey('route-option-0')), findsOneWidget);
+    expect(find.text('Previous ETA · 20 min'), findsOneWidget);
+    expect(find.text('Previous itinerary · select to refresh'), findsOneWidget);
+    expect(transitRequests, 2);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    planner.dispose();
+  });
 
   testWidgets(
     'Updated logo uses the supplied asset without cropping in light and dark themes',
@@ -162,4 +239,67 @@ void main() {
       planner.dispose();
     },
   );
+
+  testWidgets('Home ETA label and value follow the selected travel mode', (
+    tester,
+  ) async {
+    final provider = TestProvider()
+      ..handler = (query) async => [
+        sampleJourney(
+          DateTime.now().toUtc(),
+          id: query.mode,
+          minutes: switch (query.mode) {
+            'Walking' => 12,
+            'Driving' => 18,
+            _ => 25,
+          },
+        ),
+      ];
+    final controller = JourneyController(provider: provider);
+    final planner = Planner(null, journey: controller)..local = true;
+    final classStart = manilaNow().add(const Duration(hours: 2));
+    planner.payload['classes'] = [
+      {
+        'id': 'test',
+        'name': 'Upcoming lab',
+        'campus': 'FEU Tech',
+        'room': '401',
+        'day': classStart.weekday % 7,
+        'time':
+            '${classStart.hour.toString().padLeft(2, '0')}:${classStart.minute.toString().padLeft(2, '0')}',
+        'end': '23:59',
+      },
+    ];
+    configure(controller);
+    await controller.refresh();
+
+    Widget home() => MaterialApp(
+      theme: tamarawTheme('forest'),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: PunctualityOverview(planner: planner, onCommute: () {}),
+        ),
+      ),
+    );
+
+    planner.settings['mode'] = 'Walking';
+    await tester.pumpWidget(home());
+    expect(find.text('Walking ETA'), findsOneWidget);
+    expect(find.text('12 min'), findsOneWidget);
+
+    planner.settings['mode'] = 'Driving';
+    planner.settings['trafficBufferMinutes'] = 15;
+    await tester.pumpWidget(home());
+    expect(find.text('Driving ETA'), findsOneWidget);
+    expect(find.text('33 min'), findsOneWidget);
+
+    planner.settings['mode'] = 'Transit';
+    await tester.pumpWidget(home());
+    expect(find.text('Public transit ETA'), findsOneWidget);
+    expect(find.text('25 min'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    planner.dispose();
+  });
 }

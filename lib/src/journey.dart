@@ -26,7 +26,13 @@ Duration? providerDuration(dynamic value) {
   return Duration(milliseconds: (seconds * 1000).round());
 }
 
-enum JourneySource { google, openStreetMap, openTripPlanner, localGraph }
+enum JourneySource {
+  google,
+  openStreetMap,
+  openTripPlanner,
+  localGraph,
+  distanceEstimate,
+}
 
 abstract interface class JourneyProvider {
   Future<List<JourneyOption>> fetch(JourneyQuery query);
@@ -142,6 +148,8 @@ class JourneyOption {
       'OpenTripPlanner · current GTFS schedule · not a live arrival prediction',
     JourneySource.localGraph =>
       'Local transit model · verify service before travel · not live arrivals',
+    JourneySource.distanceEstimate =>
+      'Approximate distance-based ETA · road route unavailable',
   };
   bool get hasArrivalEstimate =>
       hasDuration &&
@@ -151,6 +159,32 @@ class JourneyOption {
           !steps.any((s) => s.transit));
   DateTime arrivalAt(DateTime now) =>
       arrival ?? (departure ?? now).add(duration);
+}
+
+JourneyOption? journeyWithTrafficAllowance(
+  JourneyOption? option,
+  String mode,
+  Map<String, dynamic> settings,
+) {
+  if (option == null || mode != 'Driving' || !option.hasDuration) {
+    return option;
+  }
+  final allowance = Duration(minutes: trafficBufferMinutes(settings));
+  if (allowance == Duration.zero) return option;
+  return JourneyOption(
+    id: option.id,
+    duration: option.duration + allowance,
+    points: option.points,
+    steps: option.steps,
+    updatedAt: option.updatedAt,
+    meters: option.meters,
+    fare: option.fare,
+    departure: option.departure,
+    arrival: option.arrival?.add(allowance),
+    source: option.source,
+    providerTransfers: option.providerTransfers,
+    limitations: option.limitations,
+  );
 }
 
 class JourneyQuery {

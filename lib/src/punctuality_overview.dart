@@ -28,12 +28,27 @@ class PunctualityOverview extends StatelessWidget {
     final start = next == null
         ? null
         : nextOccurrence(next, manilaNow()).subtract(const Duration(hours: 8));
+    final savedMode = planner.settings['mode'];
+    final mode = const {'Walking', 'Driving'}.contains(savedMode)
+        ? savedMode as String
+        : 'Transit';
     final prep = (planner.settings['prep'] as num).toInt();
     final buffer = (planner.settings['buffer'] as num).toInt();
-    final option =
-        next != null && j.matches(campusPoints[next['campus']]!, 'Transit')
-        ? j.selected
-        : null;
+    final destination = next == null ? null : campusPoints[next['campus']];
+    final hasCurrentDestination =
+        destination != null && j.destination == destination;
+    final rawOption = !hasCurrentDestination
+        ? null
+        : switch (mode) {
+            'Walking' => j.walkingEstimate,
+            'Driving' => j.drivingEstimate,
+            _ => j.bestTransitOption,
+          };
+    final option = journeyWithTrafficAllowance(
+      rawOption,
+      mode,
+      planner.settings,
+    );
     final advice = start == null
         ? const DepartureAdvice(status: PunctualityStatus.unavailable)
         : DepartureAdvice.calculate(
@@ -86,7 +101,11 @@ class PunctualityOverview extends StatelessWidget {
                 start == null ? '—' : journeyClock(start),
               ),
               _Metric(
-                'Public transit',
+                switch (mode) {
+                  'Walking' => 'Walking ETA',
+                  'Driving' => 'Driving ETA',
+                  _ => 'Public transit ETA',
+                },
                 option == null
                     ? 'Unavailable'
                     : !option.hasDuration

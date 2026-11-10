@@ -29,11 +29,13 @@ class RoadEstimates extends StatelessWidget {
     super.key,
     required this.journey,
     required this.settings,
-    this.onDrivingTap,
+    this.selectedMode,
+    this.onModeSelected,
   });
   final JourneyController journey;
   final Map<String, dynamic> settings;
-  final VoidCallback? onDrivingTap;
+  final String? selectedMode;
+  final ValueChanged<String>? onModeSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -61,21 +63,44 @@ class RoadEstimates extends StatelessWidget {
                   ? unavailable('Walking')
                   : '${durationLabel(walking.duration)}${distance(walking)}\n${walking.sourceLabel}',
             ),
+            trailing: selectedMode == null
+                ? null
+                : Icon(
+                    selectedMode == 'Walking'
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                  ),
+            onTap: onModeSelected == null
+                ? null
+                : () => onModeSelected!('Walking'),
           ),
         ),
         Card(
           key: const ValueKey('driving-estimate'),
           child: ListTile(
             leading: const Icon(Icons.directions_car_outlined),
-            title: const Text('Driving alternative'),
+            title: const Text('Driving estimate'),
             subtitle: Text(
               driving == null
                   ? unavailable('Driving')
-                  : 'Base ${driving.source == JourneySource.openStreetMap ? 'OSRM' : 'Google Routes'}: ${durationLabel(driving.duration)}${distance(driving)}\n'
-                        'With traffic allowance: ${durationLabel(drivingAdjustedDuration(driving.duration, settings))}\n'
+                  : '${driving.source == JourneySource.distanceEstimate ? '' : 'Base '}${switch (driving.source) {
+                          JourneySource.openStreetMap => 'OSRM',
+                          JourneySource.google => 'Google Routes',
+                          _ => 'Approximate distance model',
+                        }}: ${durationLabel(driving.duration)}${distance(driving)}\n'
+                        '${driving.source == JourneySource.distanceEstimate ? 'With planning allowance' : 'With traffic allowance'}: ${durationLabel(drivingAdjustedDuration(driving.duration, settings))}\n'
                         '${trafficBufferMinutes(settings)} min configurable allowance; not real-time traffic data.',
             ),
-            onTap: driving == null ? null : onDrivingTap,
+            trailing: selectedMode == null
+                ? null
+                : Icon(
+                    selectedMode == 'Driving'
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                  ),
+            onTap: onModeSelected == null
+                ? null
+                : () => onModeSelected!('Driving'),
           ),
         ),
       ],
@@ -147,14 +172,20 @@ class JourneyOptions extends StatelessWidget {
     required this.journey,
     this.repository,
     this.studentDiscount = false,
+    this.displayedOptions,
+    this.isSelected = true,
+    this.onSelected,
   });
   final JourneyController journey;
   final TransitRepository? repository;
   final bool studentDiscount;
+  final List<JourneyOption>? displayedOptions;
+  final bool isSelected;
+  final VoidCallback? onSelected;
   @override
   Widget build(BuildContext context) {
     final p = TamarawPalette.of(context);
-    final options = journey.options;
+    final options = displayedOptions ?? journey.options;
     final comparable = options.length > 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,7 +194,10 @@ class JourneyOptions extends StatelessWidget {
           Builder(
             builder: (context) {
               final option = options[i];
-              final chosen = journey.selectedIndex == i;
+              final stale = !option.freshAt(DateTime.now().toUtc());
+              final chosen = displayedOptions == null
+                  ? journey.selectedIndex == i
+                  : isSelected;
               final labels = <String>[];
               if (i == 0 &&
                   option.hasDuration &&
@@ -209,7 +243,7 @@ class JourneyOptions extends StatelessWidget {
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
-                      onTap: () => journey.select(i),
+                      onTap: onSelected ?? () => journey.select(i),
                       child: Padding(
                         padding: const EdgeInsets.all(18),
                         child: Column(
@@ -220,7 +254,7 @@ class JourneyOptions extends StatelessWidget {
                                 Expanded(
                                   child: Text(
                                     option.hasDuration
-                                        ? '${option.minutes} min${option.source == JourneySource.localGraph ? ' estimated' : ''}'
+                                        ? '${stale ? 'Previous ETA · ' : ''}${option.minutes} min${option.source == JourneySource.localGraph ? ' estimated' : ''}'
                                         : 'Route ${i + 1} · timing incomplete',
                                     style: Theme.of(context)
                                         .textTheme
@@ -236,7 +270,9 @@ class JourneyOptions extends StatelessWidget {
                               ],
                             ),
                             Text(
-                              option.hasArrivalEstimate
+                              stale
+                                  ? 'Previous itinerary · select to refresh'
+                                  : option.hasArrivalEstimate
                                   ? 'Arrive ${journeyClock(option.arrivalAt(DateTime.now()))}'
                                   : 'Arrival time unavailable',
                               style: Theme.of(context).textTheme.bodySmall,
