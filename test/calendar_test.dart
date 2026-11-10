@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:tamaraw_time/main.dart';
 import 'package:tamaraw_time/src/planner.dart';
+import 'package:tamaraw_time/src/punctuality_notifications.dart';
+import 'package:tamaraw_time/src/theme.dart';
 
 Map<String, dynamic> sampleClass(String id, int day, String start) => {
   'id': id,
@@ -51,6 +53,71 @@ void main() {
       DateTime.utc(2026, 11, 9, 9),
     );
   });
+
+  test(
+    'Punctuality reminders use saved class, preparation and commute times',
+    () {
+      final reminders = buildPunctualityReminders(
+        classes: [
+          sampleClass('Lab', 1, '09:00')..['weekdays'] = [1, 3],
+        ],
+        settings: {'prep': 10, 'buffer': 5, 'travel': 40},
+      );
+
+      expect(reminders, hasLength(6));
+      expect(reminders.first.leaveBy, '8:15 AM');
+      expect(
+        reminders.map(
+          (reminder) =>
+              (reminder.weekday, reminder.kind, reminder.hour, reminder.minute),
+        ),
+        [
+          (1, PunctualityReminderKind.preparation, 8, 5),
+          (1, PunctualityReminderKind.leaveBy, 8, 15),
+          (1, PunctualityReminderKind.classStarts, 9, 0),
+          (3, PunctualityReminderKind.preparation, 8, 5),
+          (3, PunctualityReminderKind.leaveBy, 8, 15),
+          (3, PunctualityReminderKind.classStarts, 9, 0),
+        ],
+      );
+    },
+  );
+
+  testWidgets(
+    'Notification preference stays enabled after permission request',
+    (tester) async {
+      final planner = Planner(null)..local = true;
+      addTearDown(planner.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: tamarawTheme('forest'),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Preferences(
+                planner: planner,
+                onSave: () async {},
+                onTutorial: () async {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final tile = find.widgetWithText(
+        SwitchListTile,
+        'Punctuality notifications',
+      );
+      await tester.ensureVisible(tile);
+      await tester.tap(
+        find.descendant(of: tile, matching: find.byType(Switch)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+      expect(planner.settings['punctualityNotificationsEnabled'], isTrue);
+      expect(find.text('Send test notification in 10 seconds'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Calendar selection, adding, editing and deleting preserve device storage',

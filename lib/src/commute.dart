@@ -1475,7 +1475,7 @@ class _CommuteState extends State<Commute> {
                       'useManualEstimate': !valid,
                     });
                     final selectedClass = chosen;
-                    if (selectedClass != null && !valid) {
+                    if (selectedClass != null) {
                       final classes = widget.planner.classes;
                       final index = classes.indexWhere(
                         (item) => item['id'] == selectedClass['id'],

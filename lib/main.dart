@@ -14,6 +14,7 @@ import 'src/account_widgets.dart';
 import 'src/class_calendar.dart';
 import 'src/google_journey_map.dart';
 import 'src/punctuality_overview.dart';
+import 'src/punctuality_notifications.dart';
 import 'src/journey_widgets.dart';
 import 'src/routing.dart';
 
@@ -47,6 +48,7 @@ Future<void> main() async {
   await GoogleMapsSetup.initialize();
   final account = AccountAuth(cloud, storage: storage);
   await account.initializeLinks();
+  unawaited(PunctualityNotifications.initialize());
   runApp(TamarawTimeApp(planner: Planner(cloud), account: account));
 }
 
@@ -129,6 +131,7 @@ class _EntryState extends State<Entry> {
         busy = false;
       });
       widget.planner.clearMemory();
+      unawaited(PunctualityNotifications.cancelAll());
     } else if (account.client.auth.currentSession != null &&
         !ready &&
         !busy &&
@@ -150,6 +153,7 @@ class _EntryState extends State<Entry> {
     setState(() => busy = true);
     try {
       await widget.planner.load(deviceOnly: local);
+      unawaited(PunctualityNotifications.sync(widget.planner));
       activeUserId = local ? null : widget.planner.cloud?.auth.currentUser?.id;
       if (mounted &&
           widget.account?.recovering != true &&
@@ -526,6 +530,7 @@ class _DashboardState extends State<Dashboard> {
   Future<void> persist([String? event, bool notify = true]) async {
     try {
       await p.save(event);
+      await PunctualityNotifications.sync(p);
       if (mounted && notify) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1695,6 +1700,115 @@ class _PreferencesState extends State<Preferences> {
         if (customTrafficBuffer) const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          value: draft['punctualityNotificationsEnabled'] == true,
+          title: const Text('Punctuality notifications'),
+          subtitle: Text(
+            PunctualityNotifications.isSupported
+                ? 'Preparation, leave-by, and class-start reminders while the app is closed.'
+                : 'Notifications are available on Android and iOS.',
+          ),
+          onChanged: PunctualityNotifications.isSupported
+              ? (value) async {
+                  setState(
+                    () => draft['punctualityNotificationsEnabled'] = value,
+                  );
+                  widget.planner.settings['punctualityNotificationsEnabled'] =
+                      value;
+                  final permissionGranted = value
+                      ? await PunctualityNotifications.requestPermission()
+                      : true;
+                  await widget.onSave();
+                  if (value && !permissionGranted && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          'Reminders are saved, but Android may hide them until notifications are allowed.',
+                        ),
+                        action: SnackBarAction(
+                          label: 'Settings',
+                          onPressed: () => unawaited(
+                            PunctualityNotifications.openSystemSettings(),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+              : null,
+        ),
+        if (PunctualityNotifications.isSupported &&
+            draft['punctualityNotificationsEnabled'] == true)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final failure =
+                        await PunctualityNotifications.showTestNotification();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          failure ?? 'Test alert sent. Check the notification and preparation sound.',
+                        ),
+                        action: failure == null
+                            ? null
+                            : SnackBarAction(
+                                label: 'Settings',
+                                onPressed: () => unawaited(
+                                  PunctualityNotifications.openSystemSettings(),
+                                ),
+                              ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: const Text('Send test notification'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final failure =
+                        await PunctualityNotifications.scheduleTestNotificationInTenSeconds();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          failure ?? 'Test alert scheduled for 10 seconds from now. Close the app; Android may delay it if exact alarms are off.',
+                        ),
+                        action: failure == null
+                            ? null
+                            : SnackBarAction(
+                                label: 'Settings',
+                                onPressed: () => unawaited(
+                                  PunctualityNotifications.openSystemSettings(),
+                                ),
+                              ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.schedule_send_outlined),
+                  label: const Text('Send test notification in 10 seconds'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await PunctualityNotifications.sync(widget.planner);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(PunctualityNotifications.lastSyncStatus),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.sync),
+                  label: const Text('Refresh class reminders'),
+                ),
+              ],
+            ),
+          ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           value: draft['useManualEstimate'] == true,
           title: const Text('Use a manual fallback'),
           subtitle: const Text(
@@ -1750,6 +1864,7 @@ class _PreferencesState extends State<Preferences> {
               try {
                 await widget.planner.waitForSaves();
                 await widget.planner.load();
+                unawaited(PunctualityNotifications.sync(widget.planner));
                 if (mounted) {
                   setState(() {
                     draft.clear();
