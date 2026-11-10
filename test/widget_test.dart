@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tamaraw_time/main.dart';
 import 'package:tamaraw_time/src/planner.dart';
 import 'package:tamaraw_time/src/routing.dart';
+import 'package:tamaraw_time/src/theme.dart';
 
 void main() {
   test('Weekly occurrences roll over and preserve midnight/PM times', () {
@@ -164,7 +165,7 @@ void main() {
     expect(Routing.isJeepney({'route': 'bus', 'name': 'Route 23'}), true);
     expect(Routing.isJeepney({'route': 'jeepney'}), true);
   });
-  testWidgets('Visual tutorial guides a local planner in live app sections', (
+  testWidgets('Getting-started tutorial matches the five-step visual guide', (
     tester,
   ) async {
     final payload = Planner.fresh();
@@ -174,18 +175,54 @@ void main() {
     await tester.pumpWidget(const TamarawTimeApp());
     await tester.tap(find.text('Continue on this device'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('visual-tutorial')), findsOneWidget);
-    expect(find.text('1. Explore your dashboard'), findsOneWidget);
-    await tester.tap(find.text('Skip'));
+    expect(find.byKey(const ValueKey('tutorial-dialog')), findsOneWidget);
+    expect(find.text('Your day, already planned'), findsOneWidget);
+    expect(find.text('01 · DASHBOARD'), findsOneWidget);
+    expect(find.text('1 / 5'), findsOneWidget);
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.text('2. Try adding a class'), findsOneWidget);
-    await tester.tap(find.byTooltip('Close tutorial'));
+    expect(find.text('Choose your class time'), findsOneWidget);
+    await tester.tap(find.text('Back'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('visual-tutorial')), findsNothing);
+    expect(find.text('Your day, already planned'), findsOneWidget);
+    await tester.tap(find.text('Skip for now'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tutorial-dialog')), findsNothing);
     expect(find.text('Saved on this device'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('Commute tutorial stage advances to settings', (tester) async {
+  testWidgets('Tutorial heading stays readable on a phone with large text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 740);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final planner = Planner(null);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: tamarawTheme('forest'),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Dashboard(planner: planner, onExit: () async {}),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final heading = find.text('Your day, already planned');
+    expect(find.byKey(const ValueKey('tutorial-dialog')), findsOneWidget);
+    expect(tester.getSize(heading).width, greaterThan(120));
+    expect(find.byTooltip('Close tutorial'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    planner.dispose();
+  });
+  testWidgets('Tutorial advances through departure, map, and theme scenes', (
+    tester,
+  ) async {
     final payload = Planner.fresh();
     SharedPreferences.setMockInitialValues({
       'tamaraw_local': jsonEncode(payload),
@@ -193,17 +230,30 @@ void main() {
     await tester.pumpWidget(const TamarawTimeApp());
     await tester.tap(find.text('Continue on this device'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Open Class Schedule'));
+    for (var step = 0; step < 3; step++) {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('See your commute live'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tutorial-route-map')), findsOneWidget);
+    expect(find.text('YOU'), findsOneWidget);
+    expect(find.text('CAMPUS'), findsOneWidget);
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.add));
+    expect(find.text('Make Tamaraw Time yours'), findsOneWidget);
+    for (final theme in TamarawPalette.themes.values) {
+      expect(find.text(theme.name), findsOneWidget);
+      final swatch = tester.widget<Container>(
+        find.byKey(ValueKey('tutorial-theme-swatch-${theme.name}')),
+      );
+      expect(
+        (swatch.decoration as BoxDecoration).gradient,
+        LinearGradient(colors: [theme.heroStart, theme.heroFinish]),
+      );
+    }
+    await tester.tap(find.text('Start using the app'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'Data Structures');
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-    expect(find.text('3. Check your commute'), findsOneWidget);
-    await tester.tap(find.text('Continue to Settings'));
-    await tester.pumpAndSettle();
-    expect(find.text('4. Personalize your planner'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tutorial-dialog')), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
   testWidgets('Replay tutorial guide returns to dashboard step one', (
@@ -222,7 +272,9 @@ void main() {
     await tester.ensureVisible(find.text('Replay tutorial guide'));
     await tester.tap(find.text('Replay tutorial guide'));
     await tester.pumpAndSettle();
-    expect(find.text('1. Explore your dashboard'), findsOneWidget);
+    expect(find.text('Your day, already planned'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close tutorial'));
+    await tester.pumpAndSettle();
     expect(find.text('Good day, Tamaraw!'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });

@@ -455,7 +455,7 @@ class Dashboard extends StatefulWidget {
 
 class _DashboardState extends State<Dashboard> {
   int page = 0;
-  int? tutorialIndex;
+  bool tutorialOpen = false;
   bool journeySyncPending = false;
   DateTime selectedDate = manilaNow();
   Timer? timer;
@@ -476,7 +476,7 @@ class _DashboardState extends State<Dashboard> {
       syncJourney();
       if (p.upcoming.isNotEmpty) unawaited(p.journey.restoreGrantedLocation());
       if (p.payload['onboarding']?['finished'] != true) {
-        setState(() => tutorialIndex = 0);
+        unawaited(tutorial());
       }
     });
   }
@@ -515,11 +515,7 @@ class _DashboardState extends State<Dashboard> {
 
   void switchPage(int index) {
     p.journey.setActive(index == 0 || index == 2);
-    setState(() {
-      page = index;
-      if (tutorialIndex == 0 && index == 1) tutorialIndex = 1;
-      if (tutorialIndex == 2 && index == 3) tutorialIndex = 3;
-    });
+    setState(() => page = index);
     if (index == 0) syncJourney();
   }
 
@@ -549,44 +545,18 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> tutorial() async {
-    setState(() {
-      page = 0;
-      tutorialIndex = 0;
-    });
-  }
-
-  Future<void> finishTutorial() async {
-    setState(() => tutorialIndex = null);
+    if (tutorialOpen || !mounted) return;
+    setState(() => page = 0);
+    tutorialOpen = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const OnboardingTutorial(),
+    );
+    tutorialOpen = false;
+    if (!mounted || p.payload['onboarding']?['finished'] == true) return;
     p.payload['onboarding'] = {'finished': true};
     await persist(null, false);
-  }
-
-  void skipTutorialStep() {
-    switch (tutorialIndex) {
-      case 0:
-        setState(() {
-          page = 1;
-          tutorialIndex = 1;
-        });
-        return;
-      case 1:
-        setState(() {
-          page = 2;
-          tutorialIndex = 2;
-        });
-        return;
-      case 2:
-        setState(() {
-          page = 3;
-          tutorialIndex = 3;
-        });
-        return;
-      case 3:
-        finishTutorial();
-        return;
-      default:
-        return;
-    }
   }
 
   Future<void> addClass([Map<String, dynamic>? existing]) async {
@@ -763,12 +733,6 @@ class _DashboardState extends State<Dashboard> {
       list.add(result);
       p.payload['classes'] = list;
       await persist(existing == null ? 'class_added' : null);
-      if (mounted && tutorialIndex == 1) {
-        setState(() {
-          tutorialIndex = 2;
-          page = 2;
-        });
-      }
     }
     await classDialog.completed;
     name.dispose();
@@ -845,116 +809,6 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
-  Widget tutorialCoach() {
-    if (tutorialIndex == null) return const SizedBox.shrink();
-    final steps = <(IconData, String, String, String)>[
-      (
-        Icons.dashboard_outlined,
-        '1. Explore your dashboard',
-        'This is your live day overview. Your next class and suggested leave time update from your schedule.',
-        'Open Class Schedule',
-      ),
-      (
-        Icons.add_circle_outline,
-        '2. Try adding a class',
-        'Tap the + button, enter a subject, then save it. Your dashboard and departure advice will update.',
-        'Use the + button',
-      ),
-      (
-        Icons.route_outlined,
-        '3. Check your commute',
-        'Use the Commute Planner to try walking, driving, or transit and compare the estimate.',
-        'Continue to Settings',
-      ),
-      (
-        Icons.settings_outlined,
-        '4. Personalize your planner',
-        'Review your campus and timing settings, then save when the values feel right.',
-        'Finish tutorial',
-      ),
-    ];
-    final step = steps[tutorialIndex!];
-    return Container(
-      key: const ValueKey('visual-tutorial'),
-      margin: const EdgeInsets.only(bottom: 24),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary,
-          width: 2,
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Column(
-            children: [
-              const TamarawLogo(size: 36),
-              const SizedBox(height: 8),
-              Icon(
-                step.$1,
-                size: 20,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ],
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        step.$2,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: skipTutorialStep,
-                      child: const Text('Skip'),
-                    ),
-                    IconButton(
-                      tooltip: 'Close tutorial',
-                      onPressed: finishTutorial,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                Text(step.$3),
-                const SizedBox(height: 12),
-                if (tutorialIndex == 1)
-                  const Text('Waiting for you to save your first class')
-                else
-                  FilledButton.tonal(
-                    onPressed: () {
-                      if (tutorialIndex == 0) {
-                        setState(() {
-                          page = 1;
-                          tutorialIndex = 1;
-                        });
-                      } else if (tutorialIndex == 2) {
-                        setState(() {
-                          page = 3;
-                          tutorialIndex = 3;
-                        });
-                      } else {
-                        finishTutorial();
-                      }
-                    },
-                    child: Text(step.$4),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: p,
@@ -998,7 +852,6 @@ class _DashboardState extends State<Dashboard> {
             ],
           ),
           const SizedBox(height: 24),
-          tutorialCoach(),
           PageEntrance(
             key: ValueKey(page),
             child: switch (page) {
@@ -1042,6 +895,624 @@ class _DashboardState extends State<Dashboard> {
       ),
     ),
   );
+}
+
+class OnboardingTutorial extends StatefulWidget {
+  const OnboardingTutorial({super.key});
+
+  @override
+  State<OnboardingTutorial> createState() => _OnboardingTutorialState();
+}
+
+class _OnboardingTutorialState extends State<OnboardingTutorial> {
+  static const steps = <({String label, String title, String tip})>[
+    (
+      label: '01 · DASHBOARD',
+      title: 'Your day, already planned',
+      tip: 'Upcoming class and departure time appear automatically.',
+    ),
+    (
+      label: '02 · CLASS SCHEDULE',
+      title: 'Choose your class time',
+      tip: 'Use the visible AM/PM buttons when adding your subject.',
+    ),
+    (
+      label: '03 · AUTOMATIC TIMING',
+      title: 'Find your best departure',
+      tip: 'Arrival buffer, travel estimate, and get-ready time shape your routine.',
+    ),
+    (
+      label: '04 · GPS TRACKING',
+      title: 'See your commute live',
+      tip: 'With location permission, a live position can improve walking and driving estimates.',
+    ),
+    (
+      label: '05 · PERSONALIZE',
+      title: 'Make Tamaraw Time yours',
+      tip: 'Change your color theme any time under Settings.',
+    ),
+  ];
+
+  int index = 0;
+
+  void close() => Navigator.of(context).pop();
+
+  Widget scene(BuildContext context) {
+    final palette = TamarawPalette.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final surface = colors.surface;
+    final border = palette.border;
+    Widget tile(
+      String label,
+      String value,
+      String note, {
+      bool highlight = false,
+    }) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: highlight ? palette.green : palette.ink,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(note, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+
+    switch (index) {
+      case 0:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.wb_sunny_outlined, color: palette.green),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Good morning, Tamaraw!')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                tile('NEXT CLASS', 'Data Structures', '9:00 AM'),
+                const SizedBox(width: 8),
+                tile(
+                  'LEAVE BY',
+                  '7:50 AM',
+                  'Calculated for you',
+                  highlight: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: const LinearProgressIndicator(value: .72, minHeight: 7),
+            ),
+          ],
+        );
+      case 1:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.menu_book_outlined, color: palette.green),
+                const SizedBox(width: 8),
+                const Text('New class'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _tutorialField(context, 'Data Structures'),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '9 : 00',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                _timeChip(context, 'AM', selected: true),
+                const SizedBox(width: 6),
+                _timeChip(context, 'PM'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _tutorialField(context, 'Monday · FEU Tech'),
+          ],
+        );
+      case 2:
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _equationPart(context, 'Class', '9:00 AM'),
+                const Icon(Icons.remove, size: 18),
+                _equationPart(context, 'Travel', '55 min'),
+                const Icon(Icons.remove, size: 18),
+                _equationPart(context, 'Buffer', '15 min'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: palette.forest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text('LEAVE BY', style: TextStyle(color: palette.yellow)),
+                  Text(
+                    '7:50 AM',
+                    style: TextStyle(
+                      color: palette.yellow,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('GET READY  ·  7:05 AM', textAlign: TextAlign.center),
+          ],
+        );
+      case 3:
+        return SizedBox(
+          height: 210,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              children: [
+                Positioned.fill(child: ColoredBox(color: palette.paper)),
+                Positioned.fill(
+                  child: CustomPaint(
+                    key: const ValueKey('tutorial-route-map'),
+                    painter: _TutorialMapPainter(
+                      palette: palette,
+                      routeColor: colors.primary,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 22,
+                  bottom: 50,
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: const Color(0xff27824b),
+                    foregroundColor: Colors.white,
+                    child: const Icon(Icons.my_location, size: 18),
+                  ),
+                ),
+                Positioned(
+                  right: 18,
+                  top: 8,
+                  child: const Icon(
+                    Icons.location_on,
+                    size: 38,
+                    color: Color(0xffd44940),
+                  ),
+                ),
+                Positioned(
+                  left: 10,
+                  bottom: 8,
+                  child: _mapTag(context, 'YOU', const Color(0xff27824b)),
+                ),
+                Positioned(
+                  right: 10,
+                  bottom: 8,
+                  child: _mapTag(context, 'CAMPUS', const Color(0xffd44940)),
+                ),
+                Positioned(
+                  left: 10,
+                  top: 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: palette.surface,
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: palette.border),
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      child: Text('ROUTE PREVIEW'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      default:
+        final themes = TamarawPalette.themes.values.toList();
+        return Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.palette_outlined, color: palette.green),
+                const SizedBox(width: 8),
+                const Text('Choose your colors'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (var row = 0; row < 2; row++) ...[
+              if (row > 0) const SizedBox(height: 8),
+              Row(
+                children: [
+                  for (var column = 0; column < 2; column++) ...[
+                    if (column > 0) const SizedBox(width: 8),
+                    Expanded(child: _themeSample(themes[row * 2 + column])),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final step = steps[index];
+    final colors = Theme.of(context).colorScheme;
+    final maxHeight = MediaQuery.sizeOf(context).height * .9;
+    return Dialog(
+      key: const ValueKey('tutorial-dialog'),
+      insetPadding: const EdgeInsets.all(14),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 630, maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'GETTING STARTED',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colors.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close tutorial',
+                    onPressed: close,
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              Container(
+                constraints: const BoxConstraints(minHeight: 210),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: TamarawPalette.of(context).soft,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: TamarawPalette.of(context).border),
+                ),
+                child: Builder(
+                  builder: (context) => MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(textScaler: TextScaler.noScaling),
+                    child: scene(context),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                step.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                step.title,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(step.tip),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: List.generate(
+                        steps.length,
+                        (dot) => Container(
+                          width: dot == index ? 24 : 8,
+                          height: 8,
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: dot == index
+                                ? colors.primary
+                                : colors.outlineVariant,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Text('${index + 1} / ${steps.length}'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: close,
+                    child: const Text('Skip for now'),
+                  ),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: index == 0
+                            ? null
+                            : () => setState(() => index--),
+                        child: const Text('Back'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: index == steps.length - 1
+                            ? close
+                            : () => setState(() => index++),
+                        child: Text(
+                          index == steps.length - 1
+                              ? 'Start using the app'
+                              : 'Next',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tutorialField(BuildContext context, String label) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(9),
+      border: Border.all(color: TamarawPalette.of(context).border),
+    ),
+    child: Text(label),
+  );
+
+  Widget _timeChip(
+    BuildContext context,
+    String label, {
+    bool selected = false,
+  }) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: selected
+          ? Theme.of(context).colorScheme.primary
+          : Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: selected
+            ? Theme.of(context).colorScheme.onPrimary
+            : Theme.of(context).colorScheme.onSurface,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+
+  Widget _equationPart(BuildContext context, String label, String value) =>
+      Column(
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          Text(value, style: Theme.of(context).textTheme.titleSmall),
+        ],
+      );
+
+  Widget _mapTag(BuildContext context, String label, Color markerColor) =>
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: TamarawPalette.of(context).border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.circle, size: 8, color: markerColor),
+              const SizedBox(width: 5),
+              Text(label),
+            ],
+          ),
+        ),
+      );
+
+  Widget _themeSample(TamarawPalette theme) => Container(
+    key: ValueKey('tutorial-theme-${theme.name}'),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: theme.paper,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: theme.border),
+    ),
+    child: Row(
+      children: [
+        Container(
+          key: ValueKey('tutorial-theme-swatch-${theme.name}'),
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [theme.heroStart, theme.heroFinish],
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: theme.yellow,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            theme.name,
+            style: TextStyle(
+              color: theme.ink,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _TutorialMapPainter extends CustomPainter {
+  const _TutorialMapPainter({required this.palette, required this.routeColor});
+
+  final TamarawPalette palette;
+  final Color routeColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final point = (double x, double y) =>
+        Offset(size.width * x, size.height * y);
+    final blocks = [
+      (0.25, 0.08, 0.43, 0.17),
+      (0.56, 0.08, 0.74, 0.17),
+      (0.05, 0.28, 0.14, 0.42),
+      (0.25, 0.28, 0.43, 0.42),
+      (0.56, 0.28, 0.74, 0.42),
+      (0.86, 0.28, 0.96, 0.42),
+      (0.05, 0.54, 0.14, 0.69),
+      (0.25, 0.54, 0.43, 0.69),
+      (0.56, 0.54, 0.74, 0.69),
+      (0.86, 0.54, 0.96, 0.69),
+      (0.25, 0.82, 0.43, 0.94),
+      (0.56, 0.82, 0.74, 0.94),
+    ];
+    final blockPaint = Paint()..color = palette.highlight;
+    for (final (left, top, right, bottom) in blocks) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromPoints(point(left, top), point(right, bottom)),
+          const Radius.circular(5),
+        ),
+        blockPaint,
+      );
+    }
+
+    final streets = <Path>[
+      Path()
+        ..moveTo(-8, size.height * .22)
+        ..lineTo(size.width + 8, size.height * .22),
+      Path()
+        ..moveTo(-8, size.height * .48)
+        ..lineTo(size.width + 8, size.height * .48),
+      Path()
+        ..moveTo(-8, size.height * .76)
+        ..lineTo(size.width + 8, size.height * .76),
+      Path()
+        ..moveTo(size.width * .2, -8)
+        ..lineTo(size.width * .2, size.height + 8),
+      Path()
+        ..moveTo(size.width * .5, -8)
+        ..lineTo(size.width * .5, size.height + 8),
+      Path()
+        ..moveTo(size.width * .8, -8)
+        ..lineTo(size.width * .8, size.height + 8),
+    ];
+    final streetEdge = Paint()
+      ..color = palette.border
+      ..strokeWidth = 23
+      ..strokeCap = StrokeCap.square
+      ..style = PaintingStyle.stroke;
+    final streetFill = Paint()
+      ..color = palette.surface
+      ..strokeWidth = 18
+      ..strokeCap = StrokeCap.square
+      ..style = PaintingStyle.stroke;
+    for (final street in streets) {
+      canvas.drawPath(street, streetEdge);
+      canvas.drawPath(street, streetFill);
+    }
+
+    final route = Path()
+      ..moveTo(size.width * .2, size.height * .76)
+      ..lineTo(size.width * .5, size.height * .76)
+      ..lineTo(size.width * .5, size.height * .48)
+      ..lineTo(size.width * .8, size.height * .48)
+      ..lineTo(size.width * .8, size.height * .22)
+      ..lineTo(size.width * .94, size.height * .22);
+    final routeCasing = Paint()
+      ..color = palette.surface
+      ..strokeWidth = 11
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    final routePaint = Paint()
+      ..color = routeColor
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(route, routeCasing);
+    canvas.drawPath(route, routePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TutorialMapPainter oldDelegate) =>
+      palette != oldDelegate.palette || routeColor != oldDelegate.routeColor;
 }
 
 class Preferences extends StatefulWidget {
