@@ -24,7 +24,7 @@ class _HistoricalTransitExplorerState extends State<HistoricalTransitExplorer> {
       childrenPadding: const EdgeInsets.all(16),
       children: [
         const Text(
-          'Past route names and stop sequences only. Current operation, fares and arrival times are not verified.',
+          'Past route names and stop sequences only. Current operation and arrival times are not verified.',
         ),
         FutureBuilder<TransitCatalog>(
           future: widget.repository.loadCatalog(),

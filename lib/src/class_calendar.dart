@@ -11,12 +11,14 @@ class ClassCalendar extends StatefulWidget {
     required this.selected,
     required this.onSelected,
     required this.classTile,
+    this.classTileWithDate,
     required this.onAdd,
   });
   final List<Map<String, dynamic>> classes;
   final DateTime selected;
   final ValueChanged<DateTime> onSelected;
   final Widget Function(Map<String, dynamic>) classTile;
+  final Widget Function(Map<String, dynamic>, DateTime)? classTileWithDate;
   final VoidCallback onAdd;
   @override
   State<ClassCalendar> createState() => _ClassCalendarState();
@@ -126,7 +128,11 @@ class _ClassCalendarState extends State<ClassCalendar> {
               child: Text('No classes on this day. Add a class to plan ahead.'),
             ),
           ),
-        ...selectedClasses.map(widget.classTile),
+        ...selectedClasses.map(
+          (entry) =>
+              widget.classTileWithDate?.call(entry, widget.selected) ??
+              widget.classTile(entry),
+        ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: widget.onAdd,

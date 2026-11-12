@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -28,34 +29,50 @@ Future<void> main() async {
     'SUPABASE_ANON_KEY',
     defaultValue: 'sb_publishable_z-SOgWTq_0WvLyj17b-y9g_PTm1Lto9',
   );
-  final storage = RememberMeStorage(
-    SharedPreferencesLocalStorage(
-      persistSessionKey:
-          'sb-${Uri.parse(url).host.split('.').first}-auth-token',
-    ),
-  );
-
-  await Supabase.initialize(
-    url: url,
-    publishableKey: key,
-    authOptions: FlutterAuthClientOptions(
-      localStorage: storage,
-      detectSessionInUri: false,
-    ),
-  );
-
-  final cloud = Supabase.instance.client;
+  SupabaseClient? cloud;
+  AccountAuth? account;
+  if (!kIsWeb) {
+    final storage = RememberMeStorage(
+      SharedPreferencesLocalStorage(
+        persistSessionKey:
+            'sb-${Uri.parse(url).host.split('.').first}-auth-token',
+      ),
+    );
+    await Supabase.initialize(
+      url: url,
+      publishableKey: key,
+      authOptions: FlutterAuthClientOptions(
+        localStorage: storage,
+        detectSessionInUri: false,
+      ),
+    );
+    final client = Supabase.instance.client;
+    cloud = client;
+    final auth = AccountAuth(client, storage: storage);
+    account = auth;
+    await auth.initializeLinks();
+  }
   await GoogleMapsSetup.initialize();
-  final account = AccountAuth(cloud, storage: storage);
-  await account.initializeLinks();
   unawaited(PunctualityNotifications.initialize());
-  runApp(TamarawTimeApp(planner: Planner(cloud), account: account));
+  runApp(
+    TamarawTimeApp(
+      planner: Planner(cloud),
+      account: account,
+      webPrototype: kIsWeb,
+    ),
+  );
 }
 
 class TamarawTimeApp extends StatefulWidget {
-  const TamarawTimeApp({super.key, this.planner, this.account});
+  const TamarawTimeApp({
+    super.key,
+    this.planner,
+    this.account,
+    this.webPrototype = false,
+  });
   final Planner? planner;
   final AccountAuth? account;
+  final bool webPrototype;
   @override
   State<TamarawTimeApp> createState() => _AppState();
 }
@@ -80,16 +97,26 @@ class _AppState extends State<TamarawTimeApp> {
         title: 'Tamaraw Time',
         debugShowCheckedModeBanner: false,
         theme: tamarawTheme(planner.settings['theme'] as String),
-        home: Entry(planner: planner, account: account),
+        home: Entry(
+          planner: planner,
+          account: account,
+          webPrototype: widget.webPrototype,
+        ),
       );
     },
   );
 }
 
 class Entry extends StatefulWidget {
-  const Entry({super.key, required this.planner, this.account});
+  const Entry({
+    super.key,
+    required this.planner,
+    this.account,
+    this.webPrototype = false,
+  });
   final Planner planner;
   final AccountAuth? account;
+  final bool webPrototype;
   @override
   State<Entry> createState() => _EntryState();
 }
@@ -106,6 +133,10 @@ class _EntryState extends State<Entry> {
     super.initState();
     remember = widget.account?.remember ?? true;
     widget.account?.addListener(accountChanged);
+    if (widget.webPrototype) {
+      unawaited(enter(true));
+      return;
+    }
     if (widget.planner.cloud?.auth.currentSession != null &&
         widget.account?.recovering != true &&
         widget.account?.handlingLink != true) {
@@ -497,13 +528,19 @@ class _DashboardState extends State<Dashboard> {
     final classes = p.upcoming;
     if (classes.isEmpty) return;
     final next = classes.first;
+    if (isOnlineClass(next)) {
+      p.journey.setActive(false);
+      return;
+    }
     final storedMode = p.settings['mode'];
     final mode = const {'Walking', 'Driving'}.contains(storedMode)
         ? storedMode as String
         : 'Transit';
-    final arriveBy = nextOccurrence(next, manilaNow()).subtract(
-      Duration(hours: 8, minutes: (p.settings['buffer'] as num).toInt()),
-    );
+    final arriveBy = p
+        .nextPlannedOccurrence(next, manilaNow())
+        .subtract(
+          Duration(hours: 8, minutes: (p.settings['buffer'] as num).toInt()),
+        );
     p.journey.configure(
       destination: campusPoints[next['campus']]!,
       label: next['campus'],
@@ -576,6 +613,7 @@ class _DashboardState extends State<Dashboard> {
         ? <int>{day}
         : classWeekdays(existing).toSet();
     String campus = existing?['campus'] ?? p.settings['campus'];
+    String classMode = existing?['classMode'] ?? 'Face-to-Face';
     TimeOfDay parse(String s) {
       final v = s.split(':').map(int.parse).toList();
       return TimeOfDay(hour: v[0], minute: v[1]);
@@ -672,6 +710,22 @@ class _DashboardState extends State<Dashboard> {
                     onChanged: (v) => campus = v!,
                     decoration: const InputDecoration(labelText: 'Campus'),
                   ),
+                  DropdownButtonFormField<String>(
+                    initialValue: classMode,
+                    isExpanded: true,
+                    items: classDeliveryModes
+                        .map(
+                          (mode) =>
+                              DropdownMenuItem(value: mode, child: Text(mode)),
+                        )
+                        .toList(),
+                    onChanged: (v) => update(() => classMode = v!),
+                    decoration: const InputDecoration(
+                      labelText: 'Class format',
+                      helperText:
+                          'Online classes skip travel and GPS planning.',
+                    ),
+                  ),
                   if (validation != null) Text(validation!),
                 ],
               ),
@@ -709,6 +763,7 @@ class _DashboardState extends State<Dashboard> {
                   'time': time(start),
                   'end': time(end),
                   'campus': campus,
+                  'classMode': classMode,
                 };
                 final conflict = p.classes
                     .where((c) => c['id'] != candidate['id'])
@@ -748,50 +803,139 @@ class _DashboardState extends State<Dashboard> {
     room.dispose();
   }
 
-  Widget classTile(Map<String, dynamic> c) => Card(
-    child: ListTile(
-      isThreeLine: true,
-      leading: const Icon(Icons.school_outlined),
-      title: Text(c['name']),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${classWeekdays(c).map((d) => days[d].substring(0, 3)).join(', ')} · ${classTime(c['time'])}–${classTime(c['end'])}\n${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}',
-          ),
-          Text(classStatus(c, manilaNow())),
-        ],
-      ),
-      onTap: () => addClass(c),
-      trailing: IconButton(
-        tooltip: 'Delete class',
-        icon: const Icon(Icons.delete_outline),
-        onPressed: () async {
-          final yes = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Text('Delete ${c['name']}?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Delete'),
-                ),
-              ],
+  Widget classTile(Map<String, dynamic> c, {DateTime? occurrence}) {
+    final date = occurrence ?? p.nextPlannedOccurrence(c, manilaNow());
+    final skipped = p.isDayOff(date) || p.isNoClassFor(c, date);
+    final attendance = p.attendanceFor(c, date);
+    Future<void> attend() async {
+      if (skipped || attendance != null) return;
+      final status = p.attendClass(c, date);
+      await persist(null, false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Personal attendance recorded: $status')),
+        );
+      }
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 12, 10),
+        child: Column(
+          children: [
+            ListTile(
+              isThreeLine: true,
+              leading: Icon(
+                isOnlineClass(c)
+                    ? Icons.video_camera_front_outlined
+                    : Icons.school_outlined,
+              ),
+              title: Text(c['name']),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${classWeekdays(c).map((d) => days[d].substring(0, 3)).join(', ')} · ${classTime(c['time'])}–${classTime(c['end'])}\n${isOnlineClass(c) ? 'Online' : '${c['campus']} · ${c['room'].toString().isEmpty ? 'Room not set' : c['room']}'}',
+                  ),
+                  Text(
+                    skipped
+                        ? 'Skipped for ${dateKey(date)}'
+                        : classStatus(c, manilaNow()),
+                  ),
+                  if (attendance != null)
+                    Text('Attended · ${attendance['status']}'),
+                ],
+              ),
+              onTap: () => addClass(c),
+              trailing: IconButton(
+                tooltip: 'Delete class',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () async {
+                  final yes = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text('Delete ${c['name']}?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (yes == true) {
+                    p.payload['classes'] = p.classes
+                      ..removeWhere((a) => a['id'] == c['id']);
+                    await persist('class_deleted');
+                  }
+                },
+              ),
             ),
-          );
-          if (yes == true) {
-            p.payload['classes'] = p.classes
-              ..removeWhere((a) => a['id'] == c['id']);
-            await persist('class_deleted');
-          }
-        },
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: skipped || attendance != null ? null : attend,
+                    icon: const Icon(Icons.check_circle_outline, size: 18),
+                    label: Text(
+                      attendance == null ? 'Attended' : attendance['status'],
+                    ),
+                  ),
+                  if (skipped)
+                    TextButton(
+                      onPressed: () async {
+                        p.undoNoClassForToday(c, date);
+                        await persist(null, false);
+                      },
+                      child: const Text('Undo skip'),
+                    )
+                  else
+                    TextButton(
+                      onPressed: () async {
+                        p.setNoClassForToday(c, date);
+                        await persist(null, false);
+                      },
+                      child: const Text('No class today'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget attendanceHistory() {
+    final records = p.attendanceRecords.reversed.toList();
+    if (records.isEmpty) return const SizedBox.shrink();
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.fact_check_outlined),
+        title: const Text('Attendance history'),
+        subtitle: const Text('Personal time-management records only'),
+        children: records
+            .take(20)
+            .map(
+              (record) => ListTile(
+                dense: true,
+                title: Text('${record['className']} · ${record['status']}'),
+                subtitle: Text(
+                  '${record['date']} · Recorded ${record['recordedAt']}',
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
   Widget home() {
     final upcoming = p.upcoming;
     return Column(
@@ -815,6 +959,8 @@ class _DashboardState extends State<Dashboard> {
             ),
           ),
         ...upcoming.take(4).map(classTile),
+        const SizedBox(height: 20),
+        attendanceHistory(),
       ],
     );
   }
@@ -871,6 +1017,8 @@ class _DashboardState extends State<Dashboard> {
                 selected: selectedDate,
                 onSelected: (date) => setState(() => selectedDate = date),
                 classTile: classTile,
+                classTileWithDate: (entry, date) =>
+                    classTile(entry, occurrence: date),
                 onAdd: () => addClass(),
               ),
               2 => Card(
@@ -1524,6 +1672,95 @@ class _TutorialMapPainter extends CustomPainter {
       palette != oldDelegate.palette || routeColor != oldDelegate.routeColor;
 }
 
+class DaysOffEditor extends StatefulWidget {
+  const DaysOffEditor({super.key, required this.planner, required this.onSave});
+  final Planner planner;
+  final Future<void> Function() onSave;
+  @override
+  State<DaysOffEditor> createState() => _DaysOffEditorState();
+}
+
+class _DaysOffEditorState extends State<DaysOffEditor> {
+  Future<void> addRange() async {
+    final now = manilaNow();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 3),
+      initialDateRange: DateTimeRange(start: now, end: now),
+    );
+    if (!mounted || picked == null) return;
+    final label = TextEditingController(text: 'Day off');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Name this time off'),
+        content: TextField(
+          controller: label,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Label'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final value = label.text;
+    label.dispose();
+    if (confirmed != true || !mounted) return;
+    widget.planner.addDaysOff(picked.start, picked.end, label: value);
+    await widget.onSave();
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Days off and vacations',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Reminders and commute planning pause for these dates; your weekly schedule stays intact.',
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: addRange,
+            icon: const Icon(Icons.event_busy_outlined),
+            label: const Text('Add a date or date range'),
+          ),
+          for (final entry in widget.planner.daysOff)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.pause_circle_outline),
+              title: Text('${entry['label']}'),
+              subtitle: Text('${entry['start']} – ${entry['end']}'),
+              trailing: IconButton(
+                tooltip: 'Remove time off',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () async {
+                  widget.planner.removeDaysOff(entry);
+                  await widget.onSave();
+                },
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
 class Preferences extends StatefulWidget {
   const Preferences({
     super.key,
@@ -1698,6 +1935,8 @@ class _PreferencesState extends State<Preferences> {
                 draft['trafficBufferMinutes'] = int.parse(value!),
           ),
         if (customTrafficBuffer) const SizedBox(height: 12),
+        DaysOffEditor(planner: widget.planner, onSave: widget.onSave),
+        const SizedBox(height: 20),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: draft['punctualityNotificationsEnabled'] == true,
@@ -1740,71 +1979,18 @@ class _PreferencesState extends State<Preferences> {
             draft['punctualityNotificationsEnabled'] == true)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final failure =
-                        await PunctualityNotifications.showTestNotification();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          failure ?? 'Test alert sent. Check the notification and preparation sound.',
-                        ),
-                        action: failure == null
-                            ? null
-                            : SnackBarAction(
-                                label: 'Settings',
-                                onPressed: () => unawaited(
-                                  PunctualityNotifications.openSystemSettings(),
-                                ),
-                              ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.notifications_active_outlined),
-                  label: const Text('Send test notification'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final failure =
-                        await PunctualityNotifications.scheduleTestNotificationInTenSeconds();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          failure ?? 'Test alert scheduled for 10 seconds from now. Close the app; Android may delay it if exact alarms are off.',
-                        ),
-                        action: failure == null
-                            ? null
-                            : SnackBarAction(
-                                label: 'Settings',
-                                onPressed: () => unawaited(
-                                  PunctualityNotifications.openSystemSettings(),
-                                ),
-                              ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.schedule_send_outlined),
-                  label: const Text('Send test notification in 10 seconds'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    await PunctualityNotifications.sync(widget.planner);
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(PunctualityNotifications.lastSyncStatus),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.sync),
-                  label: const Text('Refresh class reminders'),
-                ),
-              ],
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await PunctualityNotifications.sync(widget.planner);
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(PunctualityNotifications.lastSyncStatus),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.sync),
+              label: const Text('Refresh class reminders'),
             ),
           ),
         SwitchListTile(

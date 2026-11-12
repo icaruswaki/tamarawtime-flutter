@@ -6,7 +6,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../transit/fare_estimator_view.dart';
 import '../transit/historical_transit_view.dart';
 import '../transit/transit_directory.dart';
 import '../transit/transit_reference_map.dart';
@@ -230,6 +229,8 @@ class _CommuteState extends State<Commute> {
         point.longitude == destination.longitude;
   }
 
+  bool get chosenOnline => chosen != null && isOnlineClass(chosen!);
+
   void update(VoidCallback change) {
     setState(change);
     routeRevision.value++;
@@ -257,11 +258,17 @@ class _CommuteState extends State<Commute> {
 
   void syncQuery({bool refresh = false}) {
     final c = chosen;
+    if (c != null && isOnlineClass(c)) {
+      j.setActive(false);
+      return;
+    }
     final target = !targetsClass
         ? null
-        : nextOccurrence(c!, manilaNow()).subtract(
-            Duration(hours: 8, minutes: int.tryParse(buffer.text) ?? 15),
-          );
+        : widget.planner
+              .nextPlannedOccurrence(c!, manilaNow())
+              .subtract(
+                Duration(hours: 8, minutes: int.tryParse(buffer.text) ?? 15),
+              );
     j.configure(
       destination: destination,
       label: destinationLabel,
@@ -1133,14 +1140,6 @@ class _CommuteState extends State<Commute> {
       selectedMode: routeMode,
       onModeSelected: selectRouteMode,
     ),
-    MobilityCard(
-      child: FareEstimator(
-        repository: widget.planner.transit,
-        journey: j.matches(destination, routeMode) ? j.selected : null,
-        studentDiscount: widget.planner.studentDiscount,
-        onStudentDiscountChanged: widget.planner.selectStudentDiscount,
-      ),
-    ),
     departureCard(),
   ];
 
@@ -1150,10 +1149,9 @@ class _CommuteState extends State<Commute> {
     final advice = !targetsClass
         ? const DepartureAdvice(status: PunctualityStatus.unavailable)
         : DepartureAdvice.calculate(
-            classStart: nextOccurrence(
-              c!,
-              manilaNow(),
-            ).subtract(const Duration(hours: 8)),
+            classStart: widget.planner
+                .nextPlannedOccurrence(c!, manilaNow())
+                .subtract(const Duration(hours: 8)),
             now: DateTime.now().toUtc(),
             preparation: Duration(minutes: int.tryParse(prep.text) ?? 45),
             buffer: Duration(minutes: int.tryParse(buffer.text) ?? 15),
@@ -1192,6 +1190,25 @@ class _CommuteState extends State<Commute> {
   @override
   Widget build(BuildContext context) {
     final c = chosen;
+    if (chosenOnline) {
+      return MobilityCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.video_camera_front_outlined, size: 36),
+            const SizedBox(height: 12),
+            Text(
+              'Online class',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Travel ETA, GPS, and travel preparation are disabled for online classes. Your regular schedule and reminders remain available.',
+            ),
+          ],
+        ),
+      );
+    }
     final selectedJourney = journeyWithTrafficAllowance(
       j.matches(destination, routeMode) ? j.selected : null,
       routeMode,
@@ -1203,7 +1220,9 @@ class _CommuteState extends State<Commute> {
         : int.tryParse(travel.text) ?? 55;
     final preparation = int.tryParse(prep.text) ?? 45;
     final margin = int.tryParse(buffer.text) ?? 15;
-    final when = targetsClass ? nextOccurrence(c!, manilaNow()) : null;
+    final when = targetsClass
+        ? widget.planner.nextPlannedOccurrence(c!, manilaNow())
+        : null;
     final advice = when == null
         ? const DepartureAdvice(status: PunctualityStatus.unavailable)
         : DepartureAdvice.calculate(
@@ -1392,6 +1411,11 @@ class _CommuteState extends State<Commute> {
             liveRegion: true,
             child: Text(status, style: Theme.of(context).textTheme.bodySmall),
           ),
+          if (j.tracking && j.lastLocationUpdate != null)
+            Text(
+              'Location updated ${journeyClock(j.lastLocationUpdate!)} · Tracking is active while this page is open.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           if (tileError)
             const Padding(
               padding: EdgeInsets.only(top: 8),

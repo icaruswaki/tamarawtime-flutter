@@ -19,6 +19,7 @@ const days = [
   'Saturday',
 ];
 const modes = ['Transit', 'Jeepney', 'Train', 'Bus / UV', 'Driving', 'Walking'];
+const classDeliveryModes = ['Face-to-Face', 'Online'];
 DateTime manilaNow() => DateTime.now().toUtc().add(const Duration(hours: 8));
 String clock(DateTime date) =>
     '${date.hour % 12 == 0 ? 12 : date.hour % 12}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}';
@@ -91,6 +92,41 @@ List<Map<String, dynamic>> classesOnDate(
 ) =>
     classes.where((c) => classWeekdays(c).contains(date.weekday % 7)).toList()
       ..sort((a, b) => (a['time'] as String).compareTo(b['time'] as String));
+
+String dateKey(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+DateTime dateOnly(DateTime date) =>
+    DateTime.utc(date.year, date.month, date.day);
+
+String occurrenceKey(Map<String, dynamic> c, DateTime date) =>
+    '${c['id']}|${dateKey(date)}';
+
+bool isOnlineClass(Map<String, dynamic> c) =>
+    (c['classMode'] ?? c['delivery'] ?? 'Face-to-Face') == 'Online';
+
+String attendanceStatus(
+  Map<String, dynamic> c,
+  DateTime occurrenceDate,
+  DateTime now, {
+  int bufferMinutes = 15,
+}) {
+  final startParts = '${c['time']}'.split(':').map(int.parse).toList();
+  final start = DateTime.utc(
+    occurrenceDate.year,
+    occurrenceDate.month,
+    occurrenceDate.day,
+    startParts[0],
+    startParts[1],
+  );
+  final checkIn = now.toUtc();
+  if (checkIn.isBefore(start.subtract(Duration(minutes: bufferMinutes)))) {
+    return 'Early';
+  }
+  if (!checkIn.isAfter(start)) return 'On Time';
+  return 'Late';
+}
+
 int journeyEstimateMinutes(int baseMinutes, String mode) {
   final addition = switch (mode) {
     'Walking' => 10,
@@ -198,6 +234,9 @@ class Planner extends ChangeNotifier {
   static Map<String, dynamic> fresh() => {
     'classes': <dynamic>[],
     'tasks': <dynamic>[],
+    'attendance': <dynamic>[],
+    'daysOff': <dynamic>[],
+    'noClassOverrides': <dynamic>[],
     'settings': {
       'name': 'Tamaraw',
       'campus': 'FEU Tech',
@@ -231,6 +270,131 @@ class Planner extends ChangeNotifier {
   List<Map<String, dynamic>> get classes => (payload['classes'] as List)
       .map((e) => Map<String, dynamic>.from(e as Map))
       .toList();
+  List<Map<String, dynamic>> get attendanceRecords =>
+      ((payload['attendance'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+  List<Map<String, dynamic>> get daysOff =>
+      ((payload['daysOff'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+  List<Map<String, dynamic>> get noClassOverrides =>
+      ((payload['noClassOverrides'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+
+  bool isDayOff(DateTime date) {
+    final day = dateOnly(date);
+    return daysOff.any((entry) {
+      final start = DateTime.tryParse('${entry['start']}');
+      final end = DateTime.tryParse('${entry['end'] ?? entry['start']}');
+      if (start == null || end == null) return false;
+      final first = dateOnly(start), last = dateOnly(end);
+      return !day.isBefore(first) && !day.isAfter(last);
+    });
+  }
+
+  bool isNoClassFor(Map<String, dynamic> c, DateTime date) =>
+      noClassOverrides.any(
+        (entry) =>
+            entry['classId'] == c['id'] && entry['date'] == dateKey(date),
+      );
+
+  bool isOccurrenceExcluded(Map<String, dynamic> c, DateTime date) =>
+      isDayOff(date) || isNoClassFor(c, date);
+
+  DateTime nextPlannedOccurrence(Map<String, dynamic> c, DateTime now) {
+    var result = nextOccurrence(c, now);
+    for (var i = 0; i < 370 && isOccurrenceExcluded(c, result); i++) {
+      result = nextOccurrence(
+        c,
+        result.add(const Duration(days: 1)),
+        includeInProgress: false,
+      );
+    }
+    return result;
+  }
+
+  List<Map<String, dynamic>> classesForDate(DateTime date) =>
+      classesOnDate(classes, date);
+
+  Map<String, dynamic>? attendanceFor(Map<String, dynamic> c, DateTime date) {
+    final key = occurrenceKey(c, date);
+    for (final record in attendanceRecords.reversed) {
+      if (record['key'] == key) return record;
+    }
+    return null;
+  }
+
+  /// Records one personal check-in per class occurrence. This is not official
+  /// university attendance and is stored with the rest of the local planner.
+  String attendClass(Map<String, dynamic> c, DateTime date, {DateTime? now}) {
+    final existing = attendanceFor(c, date);
+    if (existing != null) return '${existing['status']}';
+    final checkedAt = now ?? manilaNow();
+    final record = {
+      'key': occurrenceKey(c, date),
+      'classId': c['id'],
+      'className': c['name'],
+      'date': dateKey(date),
+      'status': attendanceStatus(
+        c,
+        date,
+        checkedAt,
+        bufferMinutes: (settings['buffer'] as num?)?.toInt() ?? 15,
+      ),
+      'recordedAt': checkedAt.toIso8601String(),
+    };
+    payload['attendance'] = [...attendanceRecords, record];
+    notifyListeners();
+    return '${record['status']}';
+  }
+
+  void setNoClassForToday(Map<String, dynamic> c, DateTime date) {
+    if (isNoClassFor(c, date)) return;
+    payload['noClassOverrides'] = [
+      ...noClassOverrides,
+      {'classId': c['id'], 'date': dateKey(date), 'className': c['name']},
+    ];
+    notifyListeners();
+  }
+
+  void undoNoClassForToday(Map<String, dynamic> c, DateTime date) {
+    payload['noClassOverrides'] = noClassOverrides
+        .where(
+          (entry) =>
+              !(entry['classId'] == c['id'] && entry['date'] == dateKey(date)),
+        )
+        .toList();
+    notifyListeners();
+  }
+
+  void addDaysOff(DateTime start, DateTime end, {String label = 'Day off'}) {
+    final first = dateOnly(start), last = dateOnly(end);
+    payload['daysOff'] = [
+      ...daysOff,
+      {
+        'start': dateKey(first),
+        'end': dateKey(last.isBefore(first) ? first : last),
+        'label': label.trim().isEmpty ? 'Day off' : label.trim(),
+      },
+    ];
+    notifyListeners();
+  }
+
+  void removeDaysOff(Map<String, dynamic> entry) {
+    payload['daysOff'] = daysOff
+        .where(
+          (item) =>
+              item['start'] != entry['start'] || item['end'] != entry['end'],
+        )
+        .toList();
+    notifyListeners();
+  }
+
   int classTravelMinutes(Map<String, dynamic> c) {
     final direct = (c['travel'] as num?)?.toInt();
     if (direct != null && direct > 0) return direct;
@@ -241,13 +405,19 @@ class Planner extends ChangeNotifier {
     return (settings['travel'] as num).toInt();
   }
 
-  List<Map<String, dynamic>> get upcoming => classes
-    ..sort(
-      (a, b) => nextOccurrence(
-        a,
-        manilaNow(),
-      ).compareTo(nextOccurrence(b, manilaNow())),
-    );
+  List<Map<String, dynamic>> get upcoming =>
+      classes
+          .where(
+            (c) =>
+                !isOccurrenceExcluded(c, nextPlannedOccurrence(c, manilaNow())),
+          )
+          .toList()
+        ..sort(
+          (a, b) => nextPlannedOccurrence(
+            a,
+            manilaNow(),
+          ).compareTo(nextPlannedOccurrence(b, manilaNow())),
+        );
   Future<void> load({bool deviceOnly = false}) async {
     final requestedUserId = deviceOnly ? null : cloud?.auth.currentUser?.id;
     if (!deviceOnly && requestedUserId == null) {

@@ -75,6 +75,7 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
       drivingOptions.where((option) => option.freshAt(now())).firstOrNull;
   int selectedIndex = 0, _serial = 0, _locationSerial = 0;
   DateTime? lastRequest, arriveBy;
+  DateTime? lastLocationUpdate;
   StreamSubscription<LatLng>? _gps;
   Timer? _refreshTimer, _deferred;
   bool _bound = false, _disposed = false, _foreground = true;
@@ -129,6 +130,8 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed &&
         !(state == AppLifecycleState.inactive && locating)) {
       stopTracking();
+      message = 'Location tracking paused because the app is not active.';
+      _emit();
     }
   }
 
@@ -397,6 +400,7 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
       tracking = true;
       origin = point;
       originLabel = 'Your location';
+      lastLocationUpdate = now();
       invalidate();
       unawaited(refresh(automatic: true));
       _gps = location.updates().listen(
@@ -405,6 +409,7 @@ class JourneyController extends ChangeNotifier with WidgetsBindingObserver {
             return;
           }
           origin = point;
+          lastLocationUpdate = now();
           _emit();
           if (_routedOrigin == null ||
               const Distance()(_routedOrigin!, point) >= 250) {

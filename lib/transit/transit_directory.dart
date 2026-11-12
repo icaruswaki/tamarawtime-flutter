@@ -83,7 +83,7 @@ class _TransitDirectoryState extends State<TransitDirectory> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Rail station network reference. Service status, train fares and arrival times are not supplied.',
+              'Rail station network reference. Service status and arrival times are not supplied.',
             ),
             const SizedBox(height: 16),
             TextField(
@@ -122,7 +122,7 @@ class _TransitDirectoryState extends State<TransitDirectory> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const Text(
-                'HISTORICAL / UNVERIFIED. Potential boarding/alighting locations only. Current service, physical terminals, fares and ETAs are not verified.',
+                'HISTORICAL / UNVERIFIED. Potential boarding/alighting locations only. Current service, physical terminals and ETAs are not verified.',
               ),
               const SizedBox(height: 12),
               Text(
@@ -395,9 +395,7 @@ class _TransitDirectoryState extends State<TransitDirectory> {
         'Station ${station.order} of ${line.stations.length} · ${station.terminal ? 'Line terminal' : 'Station'}',
       ),
       Text('Reference order: ${line.beginning.name} → ${line.ending.name}'),
-      const Text(
-        'Train fare not available. Train schedules and ETAs are not supplied.',
-      ),
+      const Text('Train schedules and ETAs are not supplied.'),
       for (final transfer in data.rail.transfersAt(station.id)) ...[
         const Divider(),
         Text(
@@ -422,7 +420,7 @@ class _TransitDirectoryState extends State<TransitDirectory> {
     Text(route.classification),
     if (route.description.isNotEmpty) Text(route.description),
     const Text(
-      'Fare not available. Current operation, physical terminals and boarding permissions are unverified.',
+      'Current operation, physical terminals and boarding permissions are unverified.',
     ),
     Text(endpointSummary(route)),
     const Text(

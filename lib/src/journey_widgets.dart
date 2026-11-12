@@ -8,7 +8,6 @@ import 'journey_controller.dart';
 import 'planner.dart';
 import 'theme.dart';
 import '../transit/transit_repository.dart';
-import '../transit/fare_estimator.dart';
 
 String journeyClock(DateTime time) =>
     clock(time.toUtc().add(const Duration(hours: 8)));
@@ -316,26 +315,6 @@ class JourneyOptions extends StatelessWidget {
                                   Chip(label: Text(label)),
                               ],
                             ),
-                            if (option.fare != null)
-                              Text('Provider fare: ${option.fare}'),
-                            if (option.fare == null && repository == null)
-                              const Text('Fare not available'),
-                            if (option.fare == null && repository != null)
-                              FutureBuilder<FareEstimatorService>(
-                                future: repository!.loadEstimator(),
-                                builder: (context, snapshot) {
-                                  final fare = snapshot.data?.estimate(
-                                    option,
-                                    now: DateTime.now().toUtc(),
-                                  );
-                                  return Text(
-                                    fare?.complete == true
-                                        ? 'Estimated fare: PHP ${(studentDiscount ? fare!.student : fare!.regular).toStringAsFixed(2)}'
-                                              '${fare.legs.any((leg) => leg.rail != null) ? '\n${fare.legs.where((leg) => leg.rail != null).map((leg) => leg.rail!.label).toSet().join(', ')}' : ''}'
-                                        : 'Complete fare not available',
-                                  );
-                                },
-                              ),
                             const SizedBox(height: 8),
                             Text(
                               '${option.sourceLabel} · Updated ${journeyClock(option.updatedAt)}',

@@ -27,6 +27,27 @@ flutter pub get
 flutter run
 ```
 
+For the browser prototype, the same Flutter project starts in local-only mode
+and opens directly on the dashboard (no sign-in or registration):
+
+```powershell
+flutter pub get
+flutter run -d chrome
+```
+
+For testing from another device on the same network:
+
+```powershell
+flutter run -d web-server --web-hostname 0.0.0.0 --web-port 8080
+```
+
+Browser schedules, class formats, attendance records, commute preferences,
+days off, vacations, and one-date class skips use browser local storage and
+survive refreshes. Browser GPS is foreground-only: it stops when the page is
+inactive or minimized, and the Commute page shows the last update or the
+permission/GPS error. Mobile keeps the existing Supabase login and local
+device mode.
+
 Choose **Continue on this device** for a locally saved planner. This mode is separate from cloud accounts and does not collect research events. Local data is not encrypted; uninstalling or clearing app storage removes it.
 
 For the existing Supabase account/database:

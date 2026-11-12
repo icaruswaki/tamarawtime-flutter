@@ -37,6 +37,7 @@ class PunctualityReminder {
     required this.hour,
     required this.minute,
     required this.kind,
+    this.occurrenceDate,
   });
 
   final String classId;
@@ -47,6 +48,7 @@ class PunctualityReminder {
   final int hour;
   final int minute;
   final PunctualityReminderKind kind;
+  final DateTime? occurrenceDate;
 }
 
 List<PunctualityReminder> buildPunctualityReminders({
@@ -68,10 +70,12 @@ List<PunctualityReminder> buildPunctualityReminders({
   for (final entry in classes) {
     final startMinutes = _minutesOfDay(entry['time']);
     if (startMinutes == null) continue;
-    final travel =
-        (entry['travel'] as num?)?.toInt() ??
-        (campusTravel?[entry['campus']] as num?)?.toInt() ??
-        defaultTravel;
+    final online = isOnlineClass(entry);
+    final travel = online
+        ? 0
+        : (entry['travel'] as num?)?.toInt() ??
+              (campusTravel?[entry['campus']] as num?)?.toInt() ??
+              defaultTravel;
     if (travel < 0 || travel > 2880) continue;
     final classId =
         entry['id']?.toString() ?? '${entry['name']}:${entry['time']}';
@@ -88,7 +92,9 @@ List<PunctualityReminder> buildPunctualityReminders({
         0,
       ).add(Duration(minutes: startMinutes));
       final leave = start.subtract(Duration(minutes: travel + buffer));
-      final prepare = leave.subtract(Duration(minutes: preparation));
+      final prepare = online
+          ? start.subtract(Duration(minutes: preparation))
+          : leave.subtract(Duration(minutes: preparation));
       final leaveBy = _formatTime(leave.hour * 60 + leave.minute);
       reminders
         ..add(
@@ -124,6 +130,53 @@ List<PunctualityReminder> buildPunctualityReminders({
     }
   }
   return reminders;
+}
+
+List<PunctualityReminder> _buildPlannerReminders(Planner planner) {
+  final weekly = buildPunctualityReminders(
+    classes: planner.classes,
+    settings: planner.settings,
+  );
+  final now = manilaNow();
+  final result = <PunctualityReminder>[];
+  for (final reminder in weekly) {
+    final classEntry = planner.classes.firstWhere(
+      (entry) =>
+          '${entry['id'] ?? '${entry['name']}:${entry['time']}'}' ==
+          reminder.classId,
+      orElse: () => <String, dynamic>{},
+    );
+    for (var offset = 0; offset < 42; offset++) {
+      final date = DateTime.utc(now.year, now.month, now.day + offset);
+      if (date.weekday % 7 != reminder.weekday ||
+          classEntry.isEmpty ||
+          planner.isOccurrenceExcluded(classEntry, date)) {
+        continue;
+      }
+      final scheduled = DateTime.utc(
+        date.year,
+        date.month,
+        date.day,
+        reminder.hour,
+        reminder.minute,
+      );
+      if (!scheduled.isAfter(now.toUtc())) continue;
+      result.add(
+        PunctualityReminder(
+          classId: reminder.classId,
+          className: reminder.className,
+          classStart: reminder.classStart,
+          leaveBy: reminder.leaveBy,
+          weekday: reminder.weekday,
+          hour: reminder.hour,
+          minute: reminder.minute,
+          kind: reminder.kind,
+          occurrenceDate: date,
+        ),
+      );
+    }
+  }
+  return result;
 }
 
 PunctualityReminder _reminder(
@@ -251,10 +304,7 @@ class PunctualityNotifications {
         _scheduleSyncError = 'Punctuality notifications are turned off.';
         return;
       }
-      final reminders = buildPunctualityReminders(
-        classes: planner.classes,
-        settings: planner.settings,
-      );
+      final reminders = _buildPlannerReminders(planner);
       if (reminders.isEmpty) {
         _scheduleSyncError = 'No valid class times are available to schedule.';
         return;
@@ -486,15 +536,24 @@ class PunctualityNotifications {
   ) {
     final kind = reminder.kind;
     final startDay = (reminder.weekday - now.weekday % 7 + 7) % 7;
-    var scheduled = timezone.TZDateTime(
-      _location!,
-      now.year,
-      now.month,
-      now.day + startDay,
-      reminder.hour,
-      reminder.minute,
-    );
-    if (!scheduled.isAfter(now)) {
+    var scheduled = reminder.occurrenceDate == null
+        ? timezone.TZDateTime(
+            _location!,
+            now.year,
+            now.month,
+            now.day + startDay,
+            reminder.hour,
+            reminder.minute,
+          )
+        : timezone.TZDateTime(
+            _location!,
+            reminder.occurrenceDate!.year,
+            reminder.occurrenceDate!.month,
+            reminder.occurrenceDate!.day,
+            reminder.hour,
+            reminder.minute,
+          );
+    if (!scheduled.isAfter(now) && reminder.occurrenceDate == null) {
       scheduled = scheduled.add(const Duration(days: 7));
     }
     final body = switch (kind) {
@@ -527,7 +586,9 @@ class PunctualityNotifications {
         ),
       ),
       androidScheduleMode: scheduleMode,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      matchDateTimeComponents: reminder.occurrenceDate == null
+          ? DateTimeComponents.dayOfWeekAndTime
+          : null,
     );
   }
 
@@ -535,6 +596,16 @@ class PunctualityNotifications {
     PunctualityReminder reminder,
     timezone.TZDateTime now,
   ) {
+    if (reminder.occurrenceDate case final date?) {
+      return timezone.TZDateTime(
+        _location!,
+        date.year,
+        date.month,
+        date.day,
+        reminder.hour,
+        reminder.minute,
+      );
+    }
     final dayOffset = (reminder.weekday - now.weekday % 7 + 7) % 7;
     var result = timezone.TZDateTime(
       _location!,
@@ -550,7 +621,8 @@ class PunctualityNotifications {
 
   static int _notificationId(PunctualityReminder reminder) {
     var hash = 0x811c9dc5;
-    final key = '${reminder.classId}:${reminder.weekday}:${reminder.kind.name}';
+    final key =
+        '${reminder.classId}:${reminder.occurrenceDate ?? reminder.weekday}:${reminder.kind.name}';
     for (final unit in key.codeUnits) {
       hash = ((hash ^ unit) * 0x01000193) & 0x7fffffff;
     }

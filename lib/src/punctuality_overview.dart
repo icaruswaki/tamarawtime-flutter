@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../transit/fare_estimator_view.dart';
 import 'journey.dart';
 import 'journey_widgets.dart';
 import 'planner.dart';
@@ -24,17 +23,24 @@ class PunctualityOverview extends StatelessWidget {
     final p = TamarawPalette.of(context);
     final classes = planner.upcoming;
     final next = classes.isEmpty ? null : classes.first;
+    final online = next != null && isOnlineClass(next);
     final j = planner.journey;
     final start = next == null
         ? null
-        : nextOccurrence(next, manilaNow()).subtract(const Duration(hours: 8));
+        : planner
+              .nextPlannedOccurrence(next, manilaNow())
+              .subtract(const Duration(hours: 8));
     final savedMode = planner.settings['mode'];
     final mode = const {'Walking', 'Driving'}.contains(savedMode)
         ? savedMode as String
         : 'Transit';
     final prep = (planner.settings['prep'] as num).toInt();
     final buffer = (planner.settings['buffer'] as num).toInt();
-    final destination = next == null ? null : campusPoints[next['campus']];
+    final destination = online
+        ? null
+        : next == null
+        ? null
+        : campusPoints[next['campus']];
     final hasCurrentDestination =
         destination != null && j.destination == destination;
     final rawOption = !hasCurrentDestination
@@ -50,6 +56,8 @@ class PunctualityOverview extends StatelessWidget {
       planner.settings,
     );
     final advice = start == null
+        ? const DepartureAdvice(status: PunctualityStatus.unavailable)
+        : online
         ? const DepartureAdvice(status: PunctualityStatus.unavailable)
         : DepartureAdvice.calculate(
             classStart: start,
@@ -106,7 +114,9 @@ class PunctualityOverview extends StatelessWidget {
                   'Driving' => 'Driving ETA',
                   _ => 'Public transit ETA',
                 },
-                option == null
+                online
+                    ? 'Not needed'
+                    : option == null
                     ? 'Unavailable'
                     : !option.hasDuration
                     ? 'Route only · no ETA'
@@ -128,13 +138,11 @@ class PunctualityOverview extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 18),
-          RoadEstimates(journey: j, settings: planner.settings),
-          FareEstimator(
-            repository: planner.transit,
-            journey: option,
-            studentDiscount: planner.studentDiscount,
-            onStudentDiscountChanged: planner.selectStudentDiscount,
-          ),
+          if (!online) RoadEstimates(journey: j, settings: planner.settings),
+          if (online)
+            const Text(
+              'Online class · travel preparation and ETA are disabled.',
+            ),
         ],
       ),
     );
